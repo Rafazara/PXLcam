@@ -2,9 +2,8 @@ PXLcam — Retro Pixel ESP32-CAM Camera
 
 A custom-built retro-pixel camera using ESP32-CAM + OLED + SD storage + custom 3D case.
 
-<!-- opcional, pode remover -->
 
-📍 1. Visão Geral
+1. Visão Geral
 
 A PXLcam é uma câmera digital retrô baseada no módulo ESP32-CAM, capaz de:
 

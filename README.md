@@ -1,6 +1,7 @@
 # PXLcam
 
-![download (2)](https://github.com/user-attachments/assets/ec0f4ab5-97f2-4c76-acee-764033478665)
+<img width="195" height="120" alt="Untitled design" src="https://github.com/user-attachments/assets/5c5641d6-d972-49e8-86c2-8e4e9e332ee5" />
+
 
 **A retro-pixel camera built with ESP32-CAM**
 

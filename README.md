@@ -1,126 +1,144 @@
-PXLcam — Retro Pixel ESP32-CAM Camera
+# PXLcam
 
-A custom-built retro-pixel camera using ESP32-CAM + OLED + SD storage + custom 3D case.
+![download (2)](https://github.com/user-attachments/assets/ec0f4ab5-97f2-4c76-acee-764033478665)
 
+**A retro-pixel camera built with ESP32-CAM**
 
-1. Visão Geral
+Transform the world into 8-bit art. Capture, filter, and save pixelated memories with a custom-designed hardware that fits in your pocket.
 
-A PXLcam é uma câmera digital retrô baseada no módulo ESP32-CAM, capaz de:
+---
 
-capturar fotos pixeladas (estilo 8-bit / lo-fi)
+## What is PXLcam?
 
-salvar imagens em cartão microSD
+PXLcam is a fully functional digital camera that captures images with a distinctive lo-fi, pixelated aesthetic. Built around the ESP32-CAM module, it combines modern hardware capabilities with retro-inspired image processing.
 
-exibir mensagens e feedback em um display OLED I2C
+**Core Features**
+- Real-time pixel art filter pipeline
+- MicroSD storage for captured images
+- OLED display for system feedback
+- Rechargeable LiPo battery system
+- Custom 3D-printed enclosure
+- Modular firmware architecture
 
-operar em um corpo impresso em 3D com estética retrô moderna
+---
 
-funcionar com bateria LiPo recarregável (USB-C + TP4056)
+## Hardware Architecture
 
-O firmware foi projetado em arquitetura modular de alta estabilidade, incluindo:
+### Main Components
 
-máquina de estados (FSM)
+| Component | Model | Purpose |
+|-----------|-------|---------|
+| Microcontroller | ESP32-CAM (AI Thinker) | Processing + OV2640 sensor |
+| Programmer | ESP32-CAM-MB (CH340G) | USB upload interface |
+| Display | OLED 0.96" I²C (128×64) | User feedback |
+| Capture Button | DS-314 (momentary) | Trigger photo capture |
+| Power Switch | PBS12A (latching) | Physical on/off control |
+| Battery | LiPo 3.7V 1800mAh | Power supply |
+| Charge Controller | TP4056 + USB-C | Battery management |
+| Storage | MicroSD Class 10+ | Image storage |
 
-pipeline captura → filtro → armazenamento
+### Pinout Configuration
 
-fallback automático caso PSRAM falhe
+```
+ESP32-CAM ──→ OLED Display
+├─ GPIO 15 ──→ SDA
+├─ GPIO 14 ──→ SCL
+├─ 3.3V ─────→ VCC
+└─ GND ──────→ GND
 
-proteção contra GPIOs críticos
+ESP32-CAM ──→ Controls
+└─ GPIO 13 ──→ Capture Button
 
-logs, validação, mensagens claras no OLED
+SD Card: Built-in ESP32-CAM interface (managed by SD_MMC driver)
+Power Switch: Physical battery disconnect (not GPIO-controlled)
+```
 
-⚡ 2. Hardware Utilizado
-Componente	Função	Observação
-ESP32-CAM (AI Thinker)	CPU + sensor OV2640	Requer fonte confiável
-ESP32-CAM-MB (CH340G)	Programação via USB	Facilita uploads
-Display OLED 0.96 I²C (128x64)	Feedback ao usuário	Endereço padrão 0x3C
-Botão DS-314 (preto)	Captura da foto	Sem trava
-Botão PBS12A (quadrado, com trava)	Liga/Desliga geral	Atua como chave física
-Bateria LiPo 3.7V (1800mAh)	Alimentação	Excelente autonomia
-Módulo TP4056 USB-C (proteção)	Carregamento da bateria	Com cutoff automático
-Jumpers 10cm F/F, M/F, M/M	Cabos internos	10 cm é ideal
-Cartão microSD classe 10	Armazenamento das fotos	Necessário
-⚠️ 3. Cuidados Importantes (antes de montar)
-✔ GPIO12 — EXTREMAMENTE IMPORTANTE
+---
 
-O pino GPIO12 é usado pelo ESP32 para selecionar o modo de boot.
-Se estiver LOW durante o boot → o módulo não liga.
+## Critical Hardware Notes
 
-Na PXLcam:
+### GPIO12 Boot Configuration
 
-o botão de captura NÃO DEVE usar GPIO12
+**The GPIO12 pin determines ESP32 boot voltage selection.**
 
-o botão de power é físico → não afeta GPIO12
+- If GPIO12 is LOW during power-on, the module may fail to boot
+- Never connect the capture button to GPIO12
+- The power switch is purely physical and does not affect GPIO pins
+- Document this clearly in any hardware modifications
 
-documente para nunca manter GPIO12 pressionado ao ligar
+### Power Considerations
 
-✔ Fonte estável
+The ESP32-CAM draws significant current spikes during camera initialization:
+- Use a stable LiPo battery with TP4056 charge controller
+- Avoid powering solely through USB during development
+- Ensure proper decoupling capacitors on the power rail
 
-ESP32-CAM puxa picos de corrente ao inicializar a câmera
+### Storage Requirements
 
-Use bateria + TP4056 (ideal)
+- Use Class 10 or better microSD cards
+- Poor quality cards will cause write failures and system freezes
+- Format cards as FAT32 before first use
 
-Evite alimentar só pela USB do computador
+---
 
-✔ SD card
+## Software Architecture
 
-Dê preferência para Classe 10 ou superior
+### Project Structure
 
-SD ruim = falhas de gravação / travamentos
+```
+PXLcam/
+├── src/
+│   ├── main.cpp              # Main loop + entry point
+│   ├── app_controller.cpp    # State machine controller
+│   ├── camera_config.cpp     # Camera initialization
+│   ├── display_service.cpp   # OLED interface
+│   ├── storage_service.cpp   # SD card management
+│   └── pixel_filter.cpp      # Retro image processing
+├── include/
+│   └── *.h                   # Header files
+└── lib/
+    └── ...                   # Auxiliary services
+```
 
-🧩 4. Arquitetura do Firmware
+### State Machine Flow
 
-A arquitetura é dividida em módulos independentes:
+The firmware operates as a finite state machine with automatic error recovery:
 
-/src
-  main.cpp                → loop principal + AppController
-  app_controller.cpp      → máquina de estados
-  camera_config.cpp       → inicialização da câmera
-  display_service.cpp     → OLED
-  storage_service.cpp     → SD / salvamento
-  pixel_filter.cpp        → filtro estilo retro/pixel
-/include
-  *.h headers
-/lib
-  serviços auxiliares
-
-🔄 5. Máquina de Estados (State Machine)
+```
 Boot
- └→ InitDisplay
-      └→ InitStorage
-            └→ InitCamera
-                  └→ Idle
-                        └→ Capture
-                              └→ Filter
-                                    └→ Save
-                                          └→ Feedback
-                                                └→ Idle
-Error
- └→ Retry / Display Error
+  └─→ InitDisplay
+       └─→ InitStorage
+            └─→ InitCamera
+                 └─→ Idle ←─────┐
+                      └─→ Capture │
+                           └─→ Filter │
+                                └─→ Save │
+                                     └─→ Feedback ─┘
+                                          
+Error ──→ Retry / Display Error Message
+```
 
-🖥 6. Pinagem Oficial da PXLcam
-ESP32-CAM → OLED
-OLED	ESP32-CAM
-GND	GND
-VCC	3.3V
-SDA	GPIO 15
-SCL	GPIO 14
-Botão de Captura
-Componente	Pino
-Botão (sem trava)	GPIO 13
-SD Card (interno do ESP32-CAM)
+Key architectural decisions:
+- Modular design for easy testing and modification
+- Automatic PSRAM fallback if unavailable
+- GPIO protection to prevent boot failures
+- Comprehensive logging and user feedback
 
-Gerenciado automaticamente pelo driver SD_MMC.
+---
 
-Botão Liga/Desliga (trava)
+## Development Setup
 
-Conecta e desconecta o positivo da bateria.
-Não passa pelo ESP32.
+### Prerequisites
 
-💾 7. Dependências (PlatformIO)
+- Visual Studio Code
+- PlatformIO IDE extension
+- USB cable for ESP32-CAM-MB programmer
 
-platformio.ini:
+### Dependencies
 
+The project uses PlatformIO for dependency management:
+
+```ini
 [env:esp32cam]
 platform = espressif32
 board = esp32cam
@@ -130,96 +148,126 @@ board_build.flash_mode = qio
 monitor_speed = 115200
 upload_speed = 921600
 
-build_flags =
-  -DBOARD_HAS_PSRAM
-  -mfix-esp32-psram-cache-issue
+build_flags = 
+    -DBOARD_HAS_PSRAM
+    -mfix-esp32-psram-cache-issue
 
-lib_deps =
-  adafruit/Adafruit GFX Library @ ^1.11.9
-  adafruit/Adafruit SSD1306 @ ^2.5.9
-  espressif/esp32-camera @ ^2.0.4
+lib_deps = 
+    adafruit/Adafruit GFX Library @ ^1.11.9
+    adafruit/Adafruit SSD1306 @ ^2.5.9
+    espressif/esp32-camera @ ^2.0.4
+```
 
-🛠 8. Como rodar o projeto — VS Code + PlatformIO
-1) Instale:
+### Build and Upload
 
-VS Code
-
-Extensão PlatformIO IDE
-
-2) Clone o repositório:
-git clone https://github.com/SEU_USUARIO/PXLcam
+```bash
+# Clone the repository
+git clone https://github.com/Rafazara/PXLcam
 cd PXLcam/firmware
 
-3) Abra no VS Code
+# Open in VS Code
 code .
 
-4) Plugue o ESP32-CAM-MB e clique em:
+# Connect ESP32-CAM-MB via USB
+# In VS Code: PlatformIO → Upload
+```
 
-➡ PlatformIO → Upload
+---
 
-📸 9. Como usar a PXLcam
-1. Segure o botão de power (quadrado) para ligar
-2. Tela OLED inicializa → “PXLcam Ready”
-3. Pressione o botão de captura
+## Usage Guide
 
-captura frame
+**Powering On**
+1. Hold the power button (square, latching) until the OLED displays "PXLcam Ready"
+2. Wait for initialization sequence to complete
 
-aplica o pixel filter
+**Capturing Photos**
+1. Press the capture button (round, momentary)
+2. The system will:
+   - Capture a frame from the OV2640 sensor
+   - Apply the pixel art filter
+   - Save to microSD as `/captures/IMG_XXXXX.rgb`
+   - Display confirmation on OLED
 
-salva no SD
+**File Storage**
+- Images are saved in raw RGB format
+- Filename pattern: `IMG_00001.rgb`, `IMG_00002.rgb`, etc.
+- Files can be processed on a computer for conversion to standard formats
 
-feedback no display
+---
 
-4. Arquivos ficam em:
+## Hardware Testing Checklist
 
-/captures/IMG_00001.rgb
+### Pre-Power Tests
+- [ ] Battery fully charged
+- [ ] MicroSD card inserted and formatted
+- [ ] All connections secured
+- [ ] Camera flex cable properly seated
+- [ ] No shorts on power rails
 
-📋 10. Checklist para quando o hardware chegar
-👉 Antes de ligar:
+### First Boot Verification
+- [ ] OLED initializes and displays text
+- [ ] SD card mount message appears
+- [ ] Camera initialization succeeds
+- [ ] No error messages in serial monitor
 
-bateria carregada
+### Functionality Tests
+- [ ] Capture 10 consecutive photos successfully
+- [ ] System stability over 10-minute operation
+- [ ] Graceful handling of missing SD card
+- [ ] Button debounce working correctly
+- [ ] Temperature remains within safe range
 
-SD card inserido
+---
 
-conexões revisadas
+## Development Roadmap
 
-cabo flat da câmera bem encaixado
+| Milestone | Status |
+|-----------|--------|
+| Firmware starter | Complete |
+| Modular architecture | Complete |
+| Professional documentation | Complete |
+| Hardware testing | Pending hardware arrival |
+| 3D enclosure design | Planned |
+| Brand identity finalization | Planned |
+| v1.0 Public release | Future |
 
-👉 Primeiro boot:
+---
 
-verificar se display inicia
+## Technical Specifications
 
-verificar mensagem de SD montado
+**Image Capture**
+- Sensor: OV2640 (2MP)
+- Processing: Custom pixel art filter
+- Output format: Raw RGB
+- Storage: MicroSD (FAT32)
 
-verificar se câmera OK
+**Power System**
+- Battery: 3.7V LiPo, 1800mAh
+- Charging: USB-C via TP4056
+- Protection: Overcharge/over-discharge cutoff
+- Runtime: ~2-3 hours continuous operation (estimated)
 
-👉 Testes:
+**Physical Interface**
+- Display: 0.96" OLED, 128×64 resolution
+- Controls: 2 buttons (capture + power)
+- Indicators: On-screen status messages
 
-tirar 10 fotos seguidas
+---
 
-medir estabilidade
+## License
 
-simular ausência do SD
+MIT License — Free for personal and commercial use.
 
-pressionar botão rápido (debounce)
+See [LICENSE](LICENSE) for full details.
 
-deixar ligado 10 min (temperatura)
+---
 
-🚀 11. Roadmap
-Etapa	Status
-Firmware Starter	✔ feito
-README profissional	✔ feito
-Arquitetura modular	✔ pronto
-Testes com hardware	🔜 quando chegar
-Design da carcaça 3D	🔜 próximo passo
-Branding final	🔜
-Release v1.0	futuro
-🧢 12. Licença
+## Credits
 
-MIT License — livre para uso pessoal e comercial.
+Designed and developed by Rafael Zara  
+Hardware: ESP32-CAM (Espressif Systems)  
+Camera module: OV2640 (OmniVision)
 
-🎨 13. Branding
+---
 
-Nome oficial: PXLcam
-Conceito visual: retro-futurismo + minimalismo + pixel grid
-Logotipo: armazenado em branding/logo/
+**PXLcam** — Where nostalgia meets innovation.

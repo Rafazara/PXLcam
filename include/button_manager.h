@@ -13,6 +13,9 @@ class ButtonManager {
     void begin();
     void update(uint32_t nowMs);
     bool consumePressed();
+    
+    /// Returns true if button has been held for at least holdMs milliseconds
+    bool held(uint32_t holdMs) const;
 
    private:
     gpio_num_t pin_;
@@ -21,6 +24,7 @@ class ButtonManager {
     bool latched_ = false;
     bool pendingPress_ = false;
     uint32_t lastTransitionMs_ = 0;
+    uint32_t pressStartMs_ = 0;
 };
 
 }  // namespace pxlcam

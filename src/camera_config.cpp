@@ -99,8 +99,8 @@ camera_config_t buildCameraConfig(const CameraPins &pins, const CameraSettings &
     config.pin_pwdn = static_cast<int>(pins.pinPwdn);
     config.pin_reset = static_cast<int>(pins.pinReset);
     config.pin_xclk = static_cast<int>(pins.pinXclk);
-    config.pin_sscb_sda = static_cast<int>(pins.pinSccbSda);
-    config.pin_sscb_scl = static_cast<int>(pins.pinSccbScl);
+    config.pin_sccb_sda = static_cast<int>(pins.pinSccbSda);  // Use new API name
+    config.pin_sccb_scl = static_cast<int>(pins.pinSccbScl);  // Use new API name
     config.pin_pclk = static_cast<int>(pins.pinPclk);
     config.pin_vsync = static_cast<int>(pins.pinVsync);
     config.pin_href = static_cast<int>(pins.pinHref);

@@ -10,6 +10,7 @@ void ButtonManager::begin() {
     latched_ = false;
     pendingPress_ = false;
     lastTransitionMs_ = millis();
+    pressStartMs_ = 0;
 }
 
 void ButtonManager::update(uint32_t nowMs) {
@@ -18,11 +19,13 @@ void ButtonManager::update(uint32_t nowMs) {
         if (!latched_ && (nowMs - lastTransitionMs_) >= debounceMs_) {
             latched_ = true;
             pendingPress_ = true;
+            pressStartMs_ = nowMs;
             lastTransitionMs_ = nowMs;
         }
     } else {
         if (latched_ && (nowMs - lastTransitionMs_) >= debounceMs_) {
             latched_ = false;
+            pressStartMs_ = 0;
             lastTransitionMs_ = nowMs;
         }
     }
@@ -32,6 +35,13 @@ bool ButtonManager::consumePressed() {
     const bool wasPressed = pendingPress_;
     pendingPress_ = false;
     return wasPressed;
+}
+
+bool ButtonManager::held(uint32_t holdMs) const {
+    if (!latched_ || pressStartMs_ == 0) {
+        return false;
+    }
+    return (millis() - pressStartMs_) >= holdMs;
 }
 
 }  // namespace pxlcam

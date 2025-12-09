@@ -100,8 +100,9 @@ bool initSD(const StorageConfig &config) {
         return false;
     }
 
-    if (!SD_MMC.exists("/captures") && !SD_MMC.mkdir("/captures")) {
-        PXLCAM_LOGE_TAG(kLogTag, "Failed to create /captures directory");
+    // Create DCIM folder for standard photo naming
+    if (!SD_MMC.exists("/DCIM") && !SD_MMC.mkdir("/DCIM")) {
+        PXLCAM_LOGE_TAG(kLogTag, "Failed to create /DCIM directory");
         SD_MMC.end();
         return false;
     }

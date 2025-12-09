@@ -125,4 +125,40 @@ void shutdownDisplay() {
     PXLCAM_LOGI_TAG(kLogTag, "Display shutdown completed");
 }
 
+void drawPixel(int16_t x, int16_t y, uint16_t color) {
+    if (!g_initialized || !g_display) {
+        return;
+    }
+    g_display->drawPixel(x, y, color);
+}
+
+void updateDisplay() {
+    if (!g_initialized || !g_display) {
+        return;
+    }
+    g_display->display();
+}
+
+void drawGrayscale64x64(const uint8_t *gray64) {
+    if (!g_initialized || !g_display || !gray64) {
+        return;
+    }
+
+    g_display->clearDisplay();
+
+    // Center 64x64 on 128x64 display (offset x=32, y=0)
+    constexpr int16_t offsetX = 32;
+    constexpr int16_t offsetY = 0;
+
+    for (int16_t y = 0; y < 64; y++) {
+        for (int16_t x = 0; x < 64; x++) {
+            uint8_t v = gray64[y * 64 + x];
+            // Threshold at 128 for 1-bit conversion
+            g_display->drawPixel(offsetX + x, offsetY + y, v > 128 ? SSD1306_WHITE : SSD1306_BLACK);
+        }
+    }
+
+    g_display->display();
+}
+
 }  // namespace pxlcam::display

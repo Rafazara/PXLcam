@@ -7,6 +7,7 @@
 #include <esp32-hal-psram.h>
 
 #include "logging.h"
+#include "preview.h"
 
 namespace pxlcam {
 
@@ -35,6 +36,14 @@ void AppController::tick() {
     const uint32_t now = millis();
     if (now >= startupGuardExpiryMs_) {
         button_.update(now);
+    }
+
+    // If button held 1s in Idle state → enter preview mode
+    if (state_ == AppState::Idle && button_.held(1000)) {
+        pxlcam::preview::runPreviewLoop();
+        // After exiting preview, refresh display
+        showStatus("PXLcam pronta\nPressione botao", true);
+        return;
     }
 
     switch (state_) {
@@ -66,8 +75,9 @@ void AppController::tick() {
             handleFeedback(now);
             break;
         case AppState::Error:
+            handleError();
+            break;
         default:
-            // Remain in error state until reset.
             break;
     }
 }
@@ -100,12 +110,16 @@ void AppController::handleInitDisplay() {
 }
 
 void AppController::handleInitStorage() {
-    if (!storage::initSD(storageConfig_)) {
-        enterError("SD ERROR");
-        return;
+    sdAvailable_ = storage::initSD(storageConfig_);
+    
+    if (sdAvailable_) {
+        showStatus("SD READY", true);
+    } else {
+        PXLCAM_LOGW("SD not available - captures will not be saved");
+        showStatus("NO SD\nPreview only", true);
+        delay(1500);
     }
-
-    showStatus("SD READY", true);
+    
     transitionTo(AppState::InitCamera);
 }
 
@@ -181,11 +195,24 @@ void AppController::handleSave() {
         return;
     }
 
-    const uint32_t start = millis();
+    // Check if SD is available
+    if (!sdAvailable_) {
+        strncpy(lastMessage_, "NO SD CARD\nFrame lost", sizeof(lastMessage_) - 1);
+        lastMessage_[sizeof(lastMessage_) - 1] = '\0';
+        PXLCAM_LOGW("No SD card - frame not saved");
+        releaseActiveFrame();
+        feedbackExpiryMs_ = millis() + kFeedbackDurationMs;
+        feedbackShown_ = false;
+        transitionTo(AppState::Feedback);
+        return;
+    }
 
-    const char *extension = cameraUsesRgb_ ? "rgb" : "jpg";
+    const uint32_t start = millis();
+    const uint32_t fileNum = getNextFileNumber();
+
+    const char *extension = cameraUsesRgb_ ? "raw" : "jpg";
     char filePath[64];
-    snprintf(filePath, sizeof(filePath), "/captures/frame_%lu.%s", static_cast<unsigned long>(millis()), extension);
+    snprintf(filePath, sizeof(filePath), "/DCIM/PXL_%04lu.%s", static_cast<unsigned long>(fileNum), extension);
 
     const bool saved = storage::saveFile(filePath, activeFrame_);
     saveDurationMs_ = millis() - start;
@@ -270,6 +297,18 @@ void AppController::releaseActiveFrame() {
         pxlcam::releaseFrame(activeFrame_);
         activeFrame_ = nullptr;
     }
+}
+
+void AppController::handleError() {
+    // Allow exit from error state via button press
+    if (button_.consumePressed()) {
+        initializationFailed_ = false;
+        transitionTo(AppState::InitDisplay);
+    }
+}
+
+uint32_t AppController::getNextFileNumber() {
+    return ++fileCounter_;
 }
 
 void AppController::logMetrics() const {

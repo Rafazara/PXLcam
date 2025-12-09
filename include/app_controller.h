@@ -41,10 +41,12 @@ class AppController {
     void handleFilter();
     void handleSave();
     void handleFeedback(uint32_t nowMs);
+    void handleError();
 
     bool configureCamera();
     void releaseActiveFrame();
     void logMetrics() const;
+    uint32_t getNextFileNumber();
 
     AppState state_ = AppState::Boot;
     ButtonManager button_{GPIO_NUM_12, LOW, 150};
@@ -60,10 +62,12 @@ class AppController {
     bool cameraUsesRgb_ = false;
     bool initializationFailed_ = false;
     bool fallbackToJpeg_ = false;
+    bool sdAvailable_ = false;
 
     uint32_t startupGuardExpiryMs_ = 0;
     uint32_t feedbackExpiryMs_ = 0;
     bool feedbackShown_ = false;
+    uint32_t fileCounter_ = 0;
 
     uint32_t captureDurationMs_ = 0;
     uint32_t filterDurationMs_ = 0;

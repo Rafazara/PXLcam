@@ -290,7 +290,7 @@ void runPreviewLoop() {
                 modeChanged = true;
                 
 #if PXLCAM_GAMEBOY_DITHER
-                // Cycle: GameBoy -> Night -> Auto -> GameBoy
+                // Cycle: GameBoy -> Night -> Normal -> GameBoy
                 switch (s_ditherMode) {
                     case pxlcam::dither::DitherMode::GameBoy:
                         s_ditherMode = pxlcam::dither::DitherMode::Night;
@@ -302,11 +302,11 @@ void runPreviewLoop() {
                         break;
                     case pxlcam::dither::DitherMode::Night:
                         s_ditherMode = pxlcam::dither::DitherMode::Threshold;
-                        uiMode = pxlcam::display::PreviewMode::Auto;
+                        uiMode = pxlcam::display::PreviewMode::Normal;
 #if PXLCAM_ENABLE_NIGHT
                         pxlcam::exposure::applyStandardMode();
 #endif
-                        PXLCAM_LOGI("[PREVIEW] Mode: Auto");
+                        PXLCAM_LOGI("[PREVIEW] Mode: Normal");
                         break;
                     default:
                         s_ditherMode = pxlcam::dither::DitherMode::GameBoy;
@@ -346,7 +346,8 @@ void runPreviewLoop() {
 #if PXLCAM_UI_OVERLAY
         // Draw complete UI overlay
         int fps = s_fpsCounter.getFPS();
-        pxlcam::display::drawStatusBar(fps, true, 100, uiMode);
+        uint16_t freeHeapKb = ESP.getFreeHeap() / 1024;
+        pxlcam::display::drawStatusBar(fps, true, uiMode, freeHeapKb);
         pxlcam::display::drawHintBar("Hold 2s: mode | Tap: exit");
 #endif
 

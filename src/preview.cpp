@@ -343,10 +343,11 @@ void runPreviewLoop() {
         // Capture and process frame
         frame();
 
-#if PXLCAM_SHOW_FPS_OVERLAY
-        // Draw FPS overlay
+#if PXLCAM_UI_OVERLAY
+        // Draw complete UI overlay
         int fps = s_fpsCounter.getFPS();
         pxlcam::display::drawStatusBar(fps, true, 100, uiMode);
+        pxlcam::display::drawHintBar("Hold 2s: mode | Tap: exit");
 #endif
 
         // Swap display buffer

@@ -3,9 +3,27 @@
 #include <esp_camera.h>
 #include <img_converters.h>
 #include <esp_heap_caps.h>
+#include <cstring>
 
 #include "display.h"
 #include "logging.h"
+#include "pxlcam_config.h"
+
+#if PXLCAM_DOUBLE_BUFFER_PREVIEW
+#include "preview_buffer.h"
+#endif
+
+#if PXLCAM_GAMEBOY_DITHER
+#include "preview_dither.h"
+#endif
+
+#if PXLCAM_ENABLE_NIGHT
+#include "exposure_ctrl.h"
+#endif
+
+#include "fps_counter.h"
+#include "display_ui.h"
+#include <cstdio>
 
 namespace pxlcam::preview {
 
@@ -13,21 +31,34 @@ namespace {
 
 constexpr int kPreviewW = 64;
 constexpr int kPreviewH = 64;
-constexpr int kFrameDelayMs = 80;  // ~12 FPS
+constexpr int kFrameDelayMs = 50;  // ~20 FPS target (was 80ms / ~12 FPS in v1.0)
 constexpr int kButtonPin = 12;
 constexpr size_t kMaxRgbSize = 320 * 240 * 3;  // QVGA RGB888
 
-// 64×64 grayscale buffer (1 byte per pixel)
+// 64×64 grayscale buffer (1 byte per pixel) - used as fallback when double buffer disabled
 static uint8_t s_img64[kPreviewW * kPreviewH];
 
 // RGB buffer in PSRAM if available
 static uint8_t* s_rgbBuf = nullptr;
 
+// 1-bit packed bitmap for dithered output
+static uint8_t s_bitmap1bit[(kPreviewW * kPreviewH + 7) / 8];
+
+// FPS counter instance
+static pxlcam::util::FPSCounter s_fpsCounter;
+
+// Current preview mode
+#if PXLCAM_GAMEBOY_DITHER
+static pxlcam::dither::DitherMode s_ditherMode = pxlcam::dither::DitherMode::GameBoy;
+#else
+static int s_ditherMode = 0;
+#endif
+
 
 // ---------------------------------------------------------------------------
 // Downscale RGB888 → 64×64 grayscale
 // ---------------------------------------------------------------------------
-void downscaleTo64x64(const uint8_t* rgb, int w, int h) {
+void downscaleTo64x64(const uint8_t* rgb, int w, int h, uint8_t* outGray) {
     const int blockW = w / kPreviewW;
     const int blockH = h / kPreviewH;
 
@@ -62,7 +93,7 @@ void downscaleTo64x64(const uint8_t* rgb, int w, int h) {
                 }
             }
 
-            s_img64[idx++] = (count > 0 ? sum / count : 0);
+            outGray[idx++] = (count > 0 ? sum / count : 0);
         }
     }
 }
@@ -114,9 +145,30 @@ void begin() {
 
     if (!s_rgbBuf) {
         PXLCAM_LOGE("[PREVIEW] FAILED to allocate RGB buffer!");
-    } else {
-        PXLCAM_LOGI("[PREVIEW] Module initialized OK");
     }
+
+#if PXLCAM_DOUBLE_BUFFER_PREVIEW
+    // Initialize double buffer system
+    if (!initBuffers()) {
+        PXLCAM_LOGE("[PREVIEW] Double buffer init failed");
+    } else {
+        PXLCAM_LOGI("[PREVIEW] Double buffer initialized");
+    }
+#endif
+
+#if PXLCAM_GAMEBOY_DITHER
+    // Initialize dithering module
+    pxlcam::dither::initDitherModule(true);
+    PXLCAM_LOGI("[PREVIEW] Dither module initialized");
+#endif
+
+    // Initialize FPS counter
+    s_fpsCounter.reset();
+    
+    // Initialize UI
+    pxlcam::display::initUI();
+
+    PXLCAM_LOGI("[PREVIEW] Module initialized OK");
 }
 
 
@@ -159,8 +211,42 @@ bool frame() {
         return false;
     }
 
-    downscaleTo64x64(s_rgbBuf, srcW, srcH);
-    pxlcam::display::drawGrayscale64x64(s_img64);
+#if PXLCAM_DOUBLE_BUFFER_PREVIEW
+    // Get write buffer from double buffer system
+    uint8_t* grayBuf = g_previewBuffer.getWriteBuffer();
+    if (!grayBuf) {
+        grayBuf = s_img64;  // Fallback
+    }
+#else
+    uint8_t* grayBuf = s_img64;
+#endif
+
+    // Downscale to 64x64 grayscale
+    downscaleTo64x64(s_rgbBuf, srcW, srcH, grayBuf);
+
+#if PXLCAM_ENABLE_HISTEQ
+    // Apply histogram equalization for better contrast
+    pxlcam::dither::histogramEqualize(grayBuf, kPreviewW, kPreviewH);
+#endif
+
+#if PXLCAM_GAMEBOY_DITHER
+    // Apply current dithering mode
+    pxlcam::dither::processDither(grayBuf, kPreviewW, kPreviewH, s_bitmap1bit, false);
+    
+    // Draw 1-bit preview via UI module
+    pxlcam::display::drawPreviewBitmap(s_bitmap1bit, kPreviewW, kPreviewH);
+#else
+    // Direct grayscale display (v1.0 style)
+    pxlcam::display::drawGrayscale64x64(grayBuf);
+#endif
+
+#if PXLCAM_DOUBLE_BUFFER_PREVIEW
+    // Commit write buffer (swap)
+    g_previewBuffer.commitWrite();
+#endif
+
+    // Update FPS counter
+    s_fpsCounter.tick();
 
     return true;
 }
@@ -171,26 +257,102 @@ bool frame() {
 // PREVIEW MODE LOOP
 // ---------------------------------------------------------------------------
 void runPreviewLoop() {
-    PXLCAM_LOGI("[PREVIEW] Entering PREVIEW MODE");
+    PXLCAM_LOGI("[PREVIEW] Entering PREVIEW MODE (v1.1.0)");
 
     pxlcam::display::printDisplay("Preview...", 1, 0, 0, true, false);
     delay(500);
 
     waitForButtonRelease(2000);
 
+    // Initial UI setup
+#if PXLCAM_GAMEBOY_DITHER
+    pxlcam::display::PreviewMode uiMode = pxlcam::display::PreviewMode::GameBoy;
+    s_ditherMode = pxlcam::dither::DitherMode::GameBoy;
+#else
+    pxlcam::display::PreviewMode uiMode = pxlcam::display::PreviewMode::Auto;
+#endif
+
+    uint32_t buttonDownMs = 0;
+    bool modeChanged = false;
+
     while (true) {
 
-        // Exit preview
+        // Button handling: short press = exit, long hold (2s) = cycle mode
         if (isButtonPressed()) {
-            delay(50);
-            if (isButtonPressed()) {
-                PXLCAM_LOGI("[PREVIEW] Exit preview");
-                waitForButtonRelease(300);
-                return;
+            if (buttonDownMs == 0) {
+                buttonDownMs = millis();
             }
+            
+            uint32_t holdTime = millis() - buttonDownMs;
+            
+            // Long hold (2s) = cycle preview mode
+            if (holdTime >= 2000 && !modeChanged) {
+                modeChanged = true;
+                
+#if PXLCAM_GAMEBOY_DITHER
+                // Cycle: GameBoy -> Night -> Auto -> GameBoy
+                switch (s_ditherMode) {
+                    case pxlcam::dither::DitherMode::GameBoy:
+                        s_ditherMode = pxlcam::dither::DitherMode::Night;
+                        uiMode = pxlcam::display::PreviewMode::Night;
+#if PXLCAM_ENABLE_NIGHT
+                        pxlcam::exposure::applyNightMode();
+#endif
+                        PXLCAM_LOGI("[PREVIEW] Mode: Night");
+                        break;
+                    case pxlcam::dither::DitherMode::Night:
+                        s_ditherMode = pxlcam::dither::DitherMode::Threshold;
+                        uiMode = pxlcam::display::PreviewMode::Auto;
+#if PXLCAM_ENABLE_NIGHT
+                        pxlcam::exposure::applyStandardMode();
+#endif
+                        PXLCAM_LOGI("[PREVIEW] Mode: Auto");
+                        break;
+                    default:
+                        s_ditherMode = pxlcam::dither::DitherMode::GameBoy;
+                        uiMode = pxlcam::display::PreviewMode::GameBoy;
+                        PXLCAM_LOGI("[PREVIEW] Mode: GameBoy");
+                        break;
+                }
+                pxlcam::dither::setDitherMode(s_ditherMode);
+#endif
+                
+                // Visual feedback for mode change
+                pxlcam::display::clearDisplay();
+                char modeBuf[32];
+                snprintf(modeBuf, sizeof(modeBuf), "Mode: %s", pxlcam::display::getModeName(uiMode));
+                pxlcam::display::printDisplay(modeBuf, 1, 0, 24, false, false);
+                pxlcam::display::updateDisplay();
+                delay(500);
+            }
+        } else {
+            // Button released
+            if (buttonDownMs > 0) {
+                uint32_t holdTime = millis() - buttonDownMs;
+                
+                // Short press (< 500ms) = exit preview
+                if (holdTime < 500 && !modeChanged) {
+                    PXLCAM_LOGI("[PREVIEW] Exit preview (short press)");
+                    return;
+                }
+            }
+            buttonDownMs = 0;
+            modeChanged = false;
         }
 
+        // Capture and process frame
         frame();
+
+#if PXLCAM_UI_OVERLAY
+        // Draw complete UI overlay
+        int fps = s_fpsCounter.getFPS();
+        pxlcam::display::drawStatusBar(fps, true, 100, uiMode);
+        pxlcam::display::drawHintBar("Hold 2s: mode | Tap: exit");
+#endif
+
+        // Swap display buffer
+        pxlcam::display::swapDisplayBuffers();
+
         delay(kFrameDelayMs);
     }
 }

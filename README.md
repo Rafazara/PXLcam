@@ -7,7 +7,7 @@
 
 Transform the world into 8-bit art. Capture, filter, and save pixelated memories with a custom-designed hardware that fits in your pocket.
 
-[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](CHANGELOG.md)
 [![Platform](https://img.shields.io/badge/platform-ESP32--CAM-orange.svg)](#hardware-architecture)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
@@ -19,14 +19,50 @@ PXLcam is a fully functional digital camera that captures images with a distinct
 
 **Core Features**
 - Real-time pixel art filter pipeline
-- **GameBoy-style 4-tone dithering** *(v1.1.0)*
-- **Night vision mode** *(v1.1.0)*
-- **Double-buffered preview (~20 FPS)** *(v1.1.0)*
+- **GameBoy-style 4-tone dithering** *(v1.1.0+)*
+- **Night vision mode** *(v1.1.0+)*
+- **Stylized BMP capture with full post-processing** *(v1.2.0)*
+- **Modal mode selection menu** *(v1.2.0)*
+- **Professional UX with error screens & animations** *(v1.2.0)*
+- **Persistent mode storage (NVS)** *(v1.2.0)*
+- **Double-buffered preview (~20 FPS)** *(v1.1.0+)*
 - MicroSD storage for captured images
 - OLED display with status bar overlay
 - Rechargeable LiPo battery system
 - Custom 3D-printed enclosure
 - Modular firmware architecture
+
+---
+
+## 🆕 v1.2.0 Highlights
+
+### Stylized Capture Pipeline
+Capture photos with authentic retro aesthetics:
+- **GameBoy Mode**: Bayer 8x8 ordered dithering → 4-tone palette (classic DMG colors)
+- **Night Mode**: Gamma boost (0.6) + contrast enhancement (1.4x) for low-light
+- **Normal Mode**: Clean grayscale conversion
+- **Output**: 8-bit grayscale BMP files, ready to view anywhere
+
+### Modal Menu System
+Easy mode selection without interrupting workflow:
+- Beautiful vertical list: `[ GameBoy ]`, `[ Night ]`, `[ Normal ]`
+- Navigation: **Tap** to move, **Hold 1s** to select
+- Fade-in animation for smooth transitions
+- Mode persists across power cycles (NVS storage)
+
+### Professional UX
+Polished user experience:
+- Error screens with auto-dismiss (3 seconds)
+- Success animation (blink effect) after capture
+- Enhanced status bar: Mode (G/N/X), SD, Memory, FPS
+- Toast notifications for feedback
+
+### Button Controls
+| Action | Duration | Result |
+|--------|----------|--------|
+| **Tap** | < 500ms | Capture photo |
+| **Hold** | 500ms - 2s | Enter preview mode |
+| **Long Hold** | > 2s | Open mode menu |
 
 ---
 
@@ -203,25 +239,22 @@ code .
 
 ---
 
-## Preview Modes (v1.1.0)
+## Capture & Preview Modes (v1.2.0)
 
-PXLcam features three distinct preview visualization modes. Cycle through them by **holding the capture button for 2 seconds**.
+PXLcam features three distinct capture and preview modes. Access them via the **mode menu** (hold button 2+ seconds).
 
 | Mode | Character | Description |
 |------|-----------|-------------|
-| **Auto** | `A` | Standard grayscale threshold dithering |
-| **GameBoy** | `G` | Authentic 4-tone dithering (Bayer 8x8) |
-| **Night** | `N` | Gamma-boosted visualization for low-light |
+| **Normal** | `N` | Clean grayscale conversion |
+| **GameBoy** | `G` | Authentic 4-tone Bayer dithering (DMG palette) |
+| **Night** | `X` | Gamma-boosted + contrast enhanced for low-light |
 
-**Button Controls in Preview**
-- **Tap** (< 500ms): Exit preview mode
-- **Hold** (2 seconds): Cycle to next visualization mode
+**Mode Persistence**: Your selected mode is automatically saved and restored on power-up.
 
-**Status Bar Overlay**
-The preview displays a status bar showing:
-- SD card icon (visible when mounted)
-- Battery indicator
-- Current mode character (A/G/N)
+**Status Bar Indicators**
+- Mode character in box: `[G]`, `[N]`, `[X]`
+- SD card icon (present/missing)
+- Memory indicator (OK/Low)
 - Real-time FPS counter
 
 ---
@@ -261,6 +294,11 @@ The preview displays a status bar showing:
 | Night vision mode | ✅ Complete |
 | Double buffering | ✅ Complete |
 | UI overlay system | ✅ Complete |
+| **v1.2.0 Product-ready** | ✅ **Complete** |
+| Modal mode menu | ✅ Complete |
+| Stylized BMP capture | ✅ Complete |
+| NVS persistence | ✅ Complete |
+| Professional UX | ✅ Complete |
 | Hardware testing | 🔄 Pending hardware |
 | 3D enclosure design | 📋 Planned |
 | v2.0 Features | 📋 Planned |

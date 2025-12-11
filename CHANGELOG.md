@@ -5,6 +5,65 @@ All notable changes to PXLcam firmware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2025-12-11
+
+### Added
+
+#### Centralized Mode Management
+- **ModeManager module**: Unified mode state across all modules (`mode_manager.h/.cpp`)
+- **Mode persistence**: Automatic save/restore of capture mode via NVS
+- **Mode cycling API**: `cycleMode()` with automatic persistence
+- **Change callbacks**: Register for mode change notifications
+
+#### Stylized Capture Pipeline
+- **Full capture pipeline**: Unified capture → process → encode flow (`capture_pipeline.h/.cpp`)
+- **GameBoy dithering**: Bayer 8x8 ordered dithering with 4-tone palette (0x0F, 0x56, 0x9B, 0xCF)
+- **Night mode enhancement**: Gamma correction (0.6) + contrast boost (1.4x)
+- **BMP output**: 8-bit grayscale BMP format with 256-entry palette
+- **Debug diagnostics**: Histogram logging and 9-point tone sampling
+
+#### Modal Menu System
+- **display_menu module**: Full modal menu for mode selection
+- **Visual design**: Vertical list `[ GameBoy ]`, `[ Night ]`, `[ Normal ]` with `>` indicator
+- **Navigation**: Short press → next item, long press (1s) → select
+- **Fade-in animation**: Configurable animation on menu open
+- **Auto-timeout**: Configurable auto-close (default 15s)
+
+#### Professional UX Layer
+- **Error screens**: `showError("message")` with auto-timeout (3s)
+- **Success animations**: Quick blink effect (100ms × 3) on capture success
+- **Menu transitions**: `transitionFadeIn()` / `transitionFadeOut()` for smooth UX
+- **Enhanced status bar**: Mode indicator (G/N/X), SD icon, memory indicator, FPS
+- **Toast notifications**: `showToast()` with type-based styling (Info/Success/Warning/Error)
+- **Progress display**: `showProgress()` with title and percentage bar
+- **Loading spinner**: `showLoading()` with animated dots
+
+#### NVS Storage (Simplified)
+- **Arduino Preferences API**: Replaced raw ESP-IDF NVS with simpler Preferences wrapper
+- **Simplified API**: `nvsStoreInit()`, `saveMode()`, `loadModeOrDefault()`
+- **Automatic namespace**: "pxlcam" namespace for all stored values
+- **Extensible keys**: Support for future settings (brightness, contrast, file_num)
+
+### Changed
+- **PreviewMode enum**: Renamed `Auto` → `Normal` for consistency
+- **Status bar signature**: Now takes `PreviewMode` + `freeHeapKb` instead of battery percentage
+- **Icons**: Added memory indicator icons (MemOk/MemLow) with PROGMEM storage
+- **Mode characters**: N=Normal, G=GameBoy, X=Night (X for eXtreme low-light)
+
+### Technical Details
+- **RAM usage**: 17.4% (57KB of 320KB)
+- **Flash usage**: 15.7% (493KB of 3MB)
+- **PSRAM allocation**: ~308KB for capture buffers (RGB + BMP)
+- **New modules**: `mode_manager`, `nvs_store`, `capture_pipeline`, `display_menu`, enhanced `display_ui`
+- **Build**: Zero warnings, zero errors
+
+### Memory Management
+- **PSRAM-first allocation**: All large buffers allocated in PSRAM with heap fallback
+- **Proper cleanup**: `releaseFrame()` ensures camera framebuffer is returned
+- **No leaks**: Static buffers reused across captures
+
+---
+
 ## [1.1.0] - 2025-01-XX
 
 ### Added

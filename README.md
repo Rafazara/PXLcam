@@ -7,6 +7,10 @@
 
 Transform the world into 8-bit art. Capture, filter, and save pixelated memories with a custom-designed hardware that fits in your pocket.
 
+[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](CHANGELOG.md)
+[![Platform](https://img.shields.io/badge/platform-ESP32--CAM-orange.svg)](#hardware-architecture)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 ---
 
 ## What is PXLcam?
@@ -15,8 +19,11 @@ PXLcam is a fully functional digital camera that captures images with a distinct
 
 **Core Features**
 - Real-time pixel art filter pipeline
+- **GameBoy-style 4-tone dithering** *(v1.1.0)*
+- **Night vision mode** *(v1.1.0)*
+- **Double-buffered preview (~20 FPS)** *(v1.1.0)*
 - MicroSD storage for captured images
-- OLED display for system feedback
+- OLED display with status bar overlay
 - Rechargeable LiPo battery system
 - Custom 3D-printed enclosure
 - Modular firmware architecture
@@ -196,6 +203,29 @@ code .
 
 ---
 
+## Preview Modes (v1.1.0)
+
+PXLcam features three distinct preview visualization modes. Cycle through them by **holding the capture button for 2 seconds**.
+
+| Mode | Character | Description |
+|------|-----------|-------------|
+| **Auto** | `A` | Standard grayscale threshold dithering |
+| **GameBoy** | `G` | Authentic 4-tone dithering (Bayer 8x8) |
+| **Night** | `N` | Gamma-boosted visualization for low-light |
+
+**Button Controls in Preview**
+- **Tap** (< 500ms): Exit preview mode
+- **Hold** (2 seconds): Cycle to next visualization mode
+
+**Status Bar Overlay**
+The preview displays a status bar showing:
+- SD card icon (visible when mounted)
+- Battery indicator
+- Current mode character (A/G/N)
+- Real-time FPS counter
+
+---
+
 ## Hardware Testing Checklist
 
 ### Pre-Power Tests
@@ -224,13 +254,16 @@ code .
 
 | Milestone | Status |
 |-----------|--------|
-| Firmware starter | Complete |
-| Modular architecture | Complete |
-| Professional documentation | Complete |
-| Hardware testing | Pending hardware arrival |
-| 3D enclosure design | Planned |
-| Brand identity finalization | Planned |
-| v1.0 Public release | Future |
+| v1.0.0 Core firmware | ✅ Complete |
+| Modular architecture | ✅ Complete |
+| v1.1.0 Advanced preview | ✅ Complete |
+| GameBoy dithering | ✅ Complete |
+| Night vision mode | ✅ Complete |
+| Double buffering | ✅ Complete |
+| UI overlay system | ✅ Complete |
+| Hardware testing | 🔄 Pending hardware |
+| 3D enclosure design | 📋 Planned |
+| v2.0 Features | 📋 Planned |
 
 ---
 

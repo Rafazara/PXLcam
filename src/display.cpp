@@ -161,4 +161,8 @@ void drawGrayscale64x64(const uint8_t *gray64) {
     g_display->display();
 }
 
+Adafruit_SSD1306* getDisplayPtr() {
+    return g_display;
+}
+
 }  // namespace pxlcam::display

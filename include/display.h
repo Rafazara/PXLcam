@@ -2,6 +2,9 @@
 
 #include <stdint.h>
 
+// Forward declaration
+class Adafruit_SSD1306;
+
 namespace pxlcam::display {
 
 // Configuration for the SSD1306 OLED driven over I2C.
@@ -32,5 +35,8 @@ void updateDisplay();
 
 // Renders a 64x64 grayscale image to the OLED (1-bit threshold)
 void drawGrayscale64x64(const uint8_t *gray64);
+
+// Get raw display pointer for advanced UI operations (v1.1.0)
+Adafruit_SSD1306* getDisplayPtr();
 
 }  // namespace pxlcam::display

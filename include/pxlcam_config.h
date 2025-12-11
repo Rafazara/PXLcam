@@ -57,6 +57,21 @@
 #define PXLCAM_SELFTEST_EXT 0
 #endif
 
+/// Enable verbose capture logging (histogram, tone samples)
+#ifndef PXLCAM_VERBOSE_CAPTURE
+#define PXLCAM_VERBOSE_CAPTURE 0
+#endif
+
+/// Enable menu system
+#ifndef PXLCAM_ENABLE_MENU
+#define PXLCAM_ENABLE_MENU 1
+#endif
+
+/// Enable stylized capture pipeline (BMP output)
+#ifndef PXLCAM_STYLIZED_CAPTURE
+#define PXLCAM_STYLIZED_CAPTURE 1
+#endif
+
 // =============================================================================
 // PREVIEW CONFIGURATION
 // =============================================================================

@@ -94,14 +94,14 @@ uint8_t* allocatePsram(size_t size, const char* name) {
         heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     
     if (ptr) {
-        PXLCAM_LOGI_TAG(kLogTag, "%s: %u bytes em PSRAM", name, size);
+        PXLCAM_LOGD_TAG(kLogTag, "%s: %uKB PSRAM", name, size / 1024);
     } else {
         // Fallback to heap
         ptr = static_cast<uint8_t*>(heap_caps_malloc(size, MALLOC_CAP_8BIT));
         if (ptr) {
-            PXLCAM_LOGW_TAG(kLogTag, "%s: %u bytes em HEAP (sem PSRAM)", name, size);
+            PXLCAM_LOGW_TAG(kLogTag, "%s: %uKB HEAP (no PSRAM)", name, size / 1024);
         } else {
-            PXLCAM_LOGE_TAG(kLogTag, "%s: FALHA ao alocar %u bytes", name, size);
+            PXLCAM_LOGE_TAG(kLogTag, "%s: alloc %uKB FAILED", name, size / 1024);
         }
     }
     return ptr;
@@ -304,7 +304,7 @@ bool init() {
     g_allocatedSize = kMaxBmpSize + kMaxRgbSize;
     g_initialized = true;
     
-    PXLCAM_LOGI_TAG(kLogTag, "Pipeline inicializado (total: %u KB)", g_allocatedSize / 1024);
+    PXLCAM_LOGI_TAG(kLogTag, "Pipeline OK (%uKB)", g_allocatedSize / 1024);
     return true;
 }
 
@@ -321,7 +321,7 @@ CaptureResult captureWithMode(pxlcam::mode::CaptureMode mode, ProcessedImage& ou
     outImage = { nullptr, 0, 0, 0, false, "bmp" };
     
     if (!g_initialized && !init()) {
-        PXLCAM_LOGE_TAG(kLogTag, "Pipeline nao inicializado");
+        PXLCAM_LOGE_TAG(kLogTag, "Pipeline not initialized");
         return CaptureResult::MemoryError;
     }
     
@@ -331,15 +331,12 @@ CaptureResult captureWithMode(pxlcam::mode::CaptureMode mode, ProcessedImage& ou
     //==========================================================================
     // Step 1: Capture from camera
     //==========================================================================
-    PXLCAM_LOGI_TAG(kLogTag, "Capturando frame (modo: %s)...", 
-                    pxlcam::mode::getModeName(mode));
-    
     uint32_t captureStart = millis();
     g_activeFrame = esp_camera_fb_get();
     g_lastCaptureDuration = millis() - captureStart;
     
     if (!g_activeFrame) {
-        PXLCAM_LOGE_TAG(kLogTag, "ERRO: esp_camera_fb_get() falhou");
+        PXLCAM_LOGE_TAG(kLogTag, "Camera fb_get failed");
         return CaptureResult::CameraError;
     }
     
@@ -347,12 +344,11 @@ CaptureResult captureWithMode(pxlcam::mode::CaptureMode mode, ProcessedImage& ou
     const int h = g_activeFrame->height;
     const size_t pixels = w * h;
     
-    PXLCAM_LOGI_TAG(kLogTag, "Frame: %dx%d, %u bytes, format=%d", 
-                    w, h, g_activeFrame->len, g_activeFrame->format);
+    PXLCAM_LOGD_TAG(kLogTag, "Frame %dx%d fmt=%d", w, h, g_activeFrame->format);
     
     // Validate dimensions
     if (w > kMaxWidth || h > kMaxHeight) {
-        PXLCAM_LOGE_TAG(kLogTag, "Frame muito grande: %dx%d (max %dx%d)", w, h, kMaxWidth, kMaxHeight);
+        PXLCAM_LOGE_TAG(kLogTag, "Frame too large: %dx%d", w, h);
         return CaptureResult::MemoryError;
     }
     
@@ -363,11 +359,9 @@ CaptureResult captureWithMode(pxlcam::mode::CaptureMode mode, ProcessedImage& ou
     uint8_t* rgb888 = nullptr;
     
     if (g_activeFrame->format == PIXFORMAT_JPEG) {
-        PXLCAM_LOGI_TAG(kLogTag, "Decodificando JPEG...");
-        
         if (!fmt2rgb888(g_activeFrame->buf, g_activeFrame->len, 
                         PIXFORMAT_JPEG, g_tempRgbBuffer)) {
-            PXLCAM_LOGE_TAG(kLogTag, "ERRO: Falha ao decodificar JPEG");
+            PXLCAM_LOGE_TAG(kLogTag, "JPEG decode failed");
             return CaptureResult::ProcessingError;
         }
         rgb888 = g_tempRgbBuffer;
@@ -376,17 +370,14 @@ CaptureResult captureWithMode(pxlcam::mode::CaptureMode mode, ProcessedImage& ou
         rgb888 = g_activeFrame->buf;
     } 
     else {
-        PXLCAM_LOGE_TAG(kLogTag, "Formato nao suportado: %d", g_activeFrame->format);
+        PXLCAM_LOGE_TAG(kLogTag, "Unsupported format: %d", g_activeFrame->format);
         return CaptureResult::ProcessingError;
     }
     
     //==========================================================================
     // Step 3: Convert to Grayscale
     //==========================================================================
-    // Use beginning of processedBuffer as grayscale temp
     uint8_t* grayBuf = g_processedBuffer;
-    
-    PXLCAM_LOGI_TAG(kLogTag, "Convertendo para grayscale...");
     rgbToGrayscale(rgb888, grayBuf, w, h);
     
     //==========================================================================
@@ -394,46 +385,42 @@ CaptureResult captureWithMode(pxlcam::mode::CaptureMode mode, ProcessedImage& ou
     //==========================================================================
     switch (mode) {
         case pxlcam::mode::CaptureMode::GameBoy:
-            PXLCAM_LOGI_TAG(kLogTag, "Aplicando dithering GameBoy (Bayer 8x8)...");
             applyGameBoyDither(grayBuf, w, h);
             break;
             
         case pxlcam::mode::CaptureMode::Night:
-            PXLCAM_LOGI_TAG(kLogTag, "Aplicando enhance Night (gamma + contraste)...");
             applyNightEnhance(grayBuf, w, h);
             break;
             
         case pxlcam::mode::CaptureMode::Normal:
         default:
-            PXLCAM_LOGI_TAG(kLogTag, "Modo Normal - grayscale neutro");
             // Keep as-is
             break;
     }
     
     //==========================================================================
-    // Step 5: Log Histogram & Sample Tones (Debug)
+    // Step 5: Debug diagnostics (only in verbose mode)
     //==========================================================================
+#if PXLCAM_VERBOSE_CAPTURE
     logHistogram(grayBuf, pixels);
     logSampleTones(grayBuf, w, h);
+#endif
     
     //==========================================================================
     // Step 6: Encode as BMP
     //==========================================================================
-    PXLCAM_LOGI_TAG(kLogTag, "Codificando BMP...");
-    
-    // Allocate separate BMP buffer after grayscale processing
     size_t bmpSize = getBmpSize(w, h);
     uint8_t* bmpBuf = g_processedBuffer + pixels;  // After grayscale data
     
     // Check buffer space
     if (pixels + bmpSize > kMaxBmpSize + pixels) {
-        PXLCAM_LOGE_TAG(kLogTag, "Buffer insuficiente para BMP");
+        PXLCAM_LOGE_TAG(kLogTag, "Buffer overflow");
         return CaptureResult::MemoryError;
     }
     
     size_t actualBmpSize = 0;
     if (!encodeBmpGrayscale(grayBuf, w, h, bmpBuf, actualBmpSize)) {
-        PXLCAM_LOGE_TAG(kLogTag, "ERRO: Falha ao codificar BMP");
+        PXLCAM_LOGE_TAG(kLogTag, "BMP encode failed");
         return CaptureResult::ProcessingError;
     }
     
@@ -452,8 +439,9 @@ CaptureResult captureWithMode(pxlcam::mode::CaptureMode mode, ProcessedImage& ou
     outImage.isProcessed = true;
     outImage.extension = "bmp";
     
-    PXLCAM_LOGI_TAG(kLogTag, "Captura completa: %dx%d, %u bytes BMP", w, h, actualBmpSize);
-    PXLCAM_LOGI_TAG(kLogTag, "Tempos: captura=%ums, processo=%ums", 
+    // Single summary log
+    PXLCAM_LOGI_TAG(kLogTag, "OK %dx%d %uB %s [%u+%ums]", 
+                    w, h, actualBmpSize, pxlcam::mode::getModeName(mode),
                     g_lastCaptureDuration, g_lastProcessDuration);
     
     return CaptureResult::Success;

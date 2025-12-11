@@ -58,7 +58,6 @@ constexpr int16_t kHintY = 54;
 MenuConfig g_config;
 bool g_isOpen = false;
 uint8_t g_currentIndex = 0;
-bool g_debugLogging = true;  // Enable by default for v1.2.0 debugging
 
 // Button GPIO (same as AppController)
 constexpr gpio_num_t kButtonPin = GPIO_NUM_12;
@@ -67,21 +66,6 @@ constexpr uint8_t kButtonActive = LOW;
 //==============================================================================
 // Internal Helpers
 //==============================================================================
-
-/**
- * @brief Log message if debug enabled
- */
-void logDebug(const char* format, ...) {
-    if (!g_debugLogging) return;
-    
-    char buf[128];
-    va_list args;
-    va_start(args, format);
-    vsnprintf(buf, sizeof(buf), format, args);
-    va_end(args);
-    
-    PXLCAM_LOGI_TAG(kLogTag, "%s", buf);
-}
 
 /**
  * @brief Read button state with debounce
@@ -169,8 +153,6 @@ void performFadeIn(Adafruit_SSD1306* disp) {
         return;
     }
     
-    logDebug("Starting fade-in animation (%d steps)", g_config.fadeSteps);
-    
     // Step 1: Black screen
     disp->clearDisplay();
     disp->display();
@@ -213,25 +195,18 @@ bool handleInput(uint32_t& pressStartMs, bool& wasPressed) {
         // Button just pressed
         pressStartMs = now;
         wasPressed = true;
-        logDebug("Button pressed at %lu ms", now);
     }
     else if (!isPressed && wasPressed) {
         // Button released
         uint32_t holdDuration = now - pressStartMs;
         wasPressed = false;
         
-        logDebug("Button released, held for %lu ms", holdDuration);
-        
         if (holdDuration >= g_config.longPressMs) {
             // Long press: SELECT
-            logDebug("Long press detected -> SELECT item %d (%s)", 
-                     g_currentIndex, kMenuItems[g_currentIndex].label);
             return true;
         } else {
             // Short press: NEXT ITEM
             g_currentIndex = (g_currentIndex + 1) % kItemCount;
-            logDebug("Short press -> NEXT item %d (%s)", 
-                     g_currentIndex, kMenuItems[g_currentIndex].label);
         }
     }
     else if (isPressed && wasPressed) {
@@ -273,8 +248,7 @@ void init(const MenuConfig* config) {
     g_isOpen = false;
     g_currentIndex = 0;
     
-    logDebug("Menu system initialized (longPress=%lums, autoClose=%lums)", 
-             g_config.longPressMs, g_config.autoCloseMs);
+    PXLCAM_LOGI_TAG(kLogTag, "Menu init OK");
 }
 
 MenuResult showModal() {
@@ -284,7 +258,7 @@ MenuResult showModal() {
 MenuResult showModalAt(uint8_t initialIndex) {
     Adafruit_SSD1306* disp = pxlcam::display::getDisplayPtr();
     if (!disp) {
-        PXLCAM_LOGE_TAG(kLogTag, "Display not available");
+        PXLCAM_LOGE_TAG(kLogTag, "No display");
         return MODE_CANCELLED;
     }
     
@@ -292,8 +266,7 @@ MenuResult showModalAt(uint8_t initialIndex) {
     g_currentIndex = (initialIndex < kItemCount) ? initialIndex : 0;
     g_isOpen = true;
     
-    logDebug("=== MENU OPENED ===");
-    logDebug("Initial index: %d (%s)", g_currentIndex, kMenuItems[g_currentIndex].label);
+    PXLCAM_LOGI_TAG(kLogTag, "Menu opened idx=%d", g_currentIndex);
     
     // Wait for any existing button press to release
     waitForRelease();
@@ -308,15 +281,12 @@ MenuResult showModalAt(uint8_t initialIndex) {
     uint32_t lastRedraw = 0;
     MenuResult result = MODE_CANCELLED;
     
-    logDebug("Entering modal loop...");
-    
     // Modal loop - blocks until selection
     while (g_isOpen) {
         uint32_t now = millis();
         
         // Check auto-close timeout
         if (g_config.autoCloseMs > 0 && (now - openTime) >= g_config.autoCloseMs) {
-            logDebug("Auto-close timeout reached");
             g_isOpen = false;
             result = MODE_CANCELLED;
             break;
@@ -336,11 +306,12 @@ MenuResult showModalAt(uint8_t initialIndex) {
             drawMenu(disp);
         }
         
-        delay(10);  // Small delay to avoid busy-waiting
+        // Yield to prevent WDT and save power
+        yield();
+        delay(10);
     }
     
-    logDebug("=== MENU CLOSED ===");
-    logDebug("Result: %s (value=%d)", getResultName(result), result);
+    PXLCAM_LOGI_TAG(kLogTag, "Menu closed: %s", getResultName(result));
     
     // Brief visual feedback on selection
     if (result != MODE_CANCELLED) {
@@ -367,7 +338,7 @@ bool isOpen() {
 }
 
 void forceClose() {
-    logDebug("Force close requested");
+    PXLCAM_LOGD_TAG(kLogTag, "Force close");
     g_isOpen = false;
 }
 
@@ -399,9 +370,8 @@ MenuResult fromCaptureModeValue(uint8_t modeValue) {
     return MODE_NORMAL;  // Default
 }
 
-void setDebugLogging(bool enable) {
-    g_debugLogging = enable;
-    logDebug("Debug logging %s", enable ? "enabled" : "disabled");
+void setDebugLogging(bool) {
+    // Deprecated - use PXLCAM_LOG_LEVEL instead
 }
 
 uint8_t getItemCount() {

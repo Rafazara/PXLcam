@@ -7,75 +7,95 @@
 #include "nvs_store.h"
 #include "logging.h"
 
+#include <freertos/FreeRTOS.h>
+#include <freertos/portmacro.h>
+
 namespace pxlcam::mode {
 
 namespace {
 
 constexpr const char* kLogTag = "mode";
 
-CaptureMode g_currentMode = CaptureMode::Normal;
-ModeChangeCallback g_callback = nullptr;
-bool g_initialized = false;
+// Thread-safe state with spinlock for ISR-safe access
+static portMUX_TYPE s_modeMux = portMUX_INITIALIZER_UNLOCKED;
+static volatile CaptureMode s_currentMode = CaptureMode::Normal;
+static ModeChangeCallback s_callback = nullptr;
+static volatile bool s_initialized = false;
 
 }  // anonymous namespace
 
 bool init() {
-    if (g_initialized) {
+    portENTER_CRITICAL(&s_modeMux);
+    if (s_initialized) {
+        portEXIT_CRITICAL(&s_modeMux);
         return true;
     }
+    portEXIT_CRITICAL(&s_modeMux);
     
-    // Initialize NVS first using new API
+    // Initialize NVS first (outside critical section - may block)
     pxlcam::nvs::nvsStoreInit();
     
-    // Load saved mode from NVS using simplified API
+    // Load saved mode from NVS
     uint8_t savedMode = pxlcam::nvs::loadModeOrDefault(
         static_cast<uint8_t>(CaptureMode::Normal)
     );
     
     // Validate saved mode
     if (savedMode >= static_cast<uint8_t>(CaptureMode::COUNT)) {
-        PXLCAM_LOGW_TAG(kLogTag, "Modo salvo invalido %d, resetando para Normal", savedMode);
+        PXLCAM_LOGW_TAG(kLogTag, "Invalid mode %d, reset to Normal", savedMode);
         savedMode = static_cast<uint8_t>(CaptureMode::Normal);
     }
     
-    g_currentMode = static_cast<CaptureMode>(savedMode);
-    g_initialized = true;
+    portENTER_CRITICAL(&s_modeMux);
+    s_currentMode = static_cast<CaptureMode>(savedMode);
+    s_initialized = true;
+    portEXIT_CRITICAL(&s_modeMux);
     
-    PXLCAM_LOGI_TAG(kLogTag, "ModeManager inicializado, modo: %s (%d)", 
-                    getModeName(g_currentMode), static_cast<int>(g_currentMode));
+    PXLCAM_LOGI_TAG(kLogTag, "Init OK, mode=%s", getModeName(s_currentMode));
     return true;
 }
 
 CaptureMode getCurrentMode() {
-    return g_currentMode;
+    portENTER_CRITICAL(&s_modeMux);
+    CaptureMode mode = s_currentMode;
+    portEXIT_CRITICAL(&s_modeMux);
+    return mode;
 }
 
 void setMode(CaptureMode mode, bool persist) {
     if (mode >= CaptureMode::COUNT) {
-        PXLCAM_LOGW_TAG(kLogTag, "Modo invalido %d, ignorando", static_cast<int>(mode));
+        PXLCAM_LOGW_TAG(kLogTag, "Invalid mode %d", static_cast<int>(mode));
         return;
     }
     
-    CaptureMode oldMode = g_currentMode;
-    g_currentMode = mode;
+    CaptureMode oldMode;
+    ModeChangeCallback cb = nullptr;
     
-    // Persist to NVS using new simplified API
+    portENTER_CRITICAL(&s_modeMux);
+    oldMode = s_currentMode;
+    s_currentMode = mode;
+    cb = s_callback;
+    portEXIT_CRITICAL(&s_modeMux);
+    
+    // Persist outside critical section (NVS may block)
     if (persist) {
         pxlcam::nvs::saveMode(static_cast<uint8_t>(mode));
     }
     
-    PXLCAM_LOGI_TAG(kLogTag, "Modo alterado: %s -> %s", getModeName(oldMode), getModeName(mode));
-    
-    // Notify callback if registered and mode actually changed
-    if (g_callback && oldMode != mode) {
-        g_callback(mode);
+    // Notify callback outside critical section
+    if (cb && oldMode != mode) {
+        PXLCAM_LOGI_TAG(kLogTag, "%s->%s", getModeName(oldMode), getModeName(mode));
+        cb(mode);
     }
 }
 
 CaptureMode cycleMode(bool persist) {
-    uint8_t nextMode = (static_cast<uint8_t>(g_currentMode) + 1) % static_cast<uint8_t>(CaptureMode::COUNT);
+    portENTER_CRITICAL(&s_modeMux);
+    uint8_t nextMode = (static_cast<uint8_t>(s_currentMode) + 1) % static_cast<uint8_t>(CaptureMode::COUNT);
+    portEXIT_CRITICAL(&s_modeMux);
+    
     setMode(static_cast<CaptureMode>(nextMode), persist);
-    return g_currentMode;
+    return getCurrentMode();
 }
 
 const char* getModeName(CaptureMode mode) {
@@ -97,31 +117,39 @@ char getModeChar(CaptureMode mode) {
 }
 
 void setModeChangeCallback(ModeChangeCallback callback) {
-    g_callback = callback;
+    portENTER_CRITICAL(&s_modeMux);
+    s_callback = callback;
+    portEXIT_CRITICAL(&s_modeMux);
 }
 
 bool requiresPostProcess() {
-    return g_currentMode != CaptureMode::Normal;
+    return getCurrentMode() != CaptureMode::Normal;
 }
 
 bool isNightMode() {
-    return g_currentMode == CaptureMode::Night;
+    return getCurrentMode() == CaptureMode::Night;
 }
 
 bool usesDithering() {
-    return g_currentMode == CaptureMode::GameBoy || g_currentMode == CaptureMode::Night;
+    CaptureMode m = getCurrentMode();
+    return m == CaptureMode::GameBoy || m == CaptureMode::Night;
 }
 
 void resetToDefault() {
-    g_currentMode = CaptureMode::Normal;
+    ModeChangeCallback cb = nullptr;
     
-    // Erase saved mode from NVS
+    portENTER_CRITICAL(&s_modeMux);
+    s_currentMode = CaptureMode::Normal;
+    cb = s_callback;
+    portEXIT_CRITICAL(&s_modeMux);
+    
+    // Erase outside critical section
     pxlcam::nvs::erase(pxlcam::nvs::keys::kCaptureMode);
     
-    PXLCAM_LOGI_TAG(kLogTag, "Modo resetado para Normal");
+    PXLCAM_LOGI_TAG(kLogTag, "Reset to Normal");
     
-    if (g_callback) {
-        g_callback(CaptureMode::Normal);
+    if (cb) {
+        cb(CaptureMode::Normal);
     }
 }
 

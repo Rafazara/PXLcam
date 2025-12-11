@@ -14,41 +14,48 @@
 #endif
 
 // =============================================================================
-// FEATURE FLAGS
+// FEATURE FLAGS (1 = enabled, 0 = disabled)
 // =============================================================================
 
 /// Enable histogram equalization in preview pipeline
 #ifndef PXLCAM_ENABLE_HISTEQ
-// #define PXLCAM_ENABLE_HISTEQ
+#define PXLCAM_ENABLE_HISTEQ 0
 #endif
 
 /// Enable night vision mode
 #ifndef PXLCAM_ENABLE_NIGHT
-#define PXLCAM_ENABLE_NIGHT
+#define PXLCAM_ENABLE_NIGHT 1
 #endif
 
 /// Enable GameBoy-style dithering
 #ifndef PXLCAM_GAMEBOY_DITHER
-#define PXLCAM_GAMEBOY_DITHER
+#define PXLCAM_GAMEBOY_DITHER 1
 #endif
 
 /// Enable double buffering for preview (requires more PSRAM)
 #ifndef PXLCAM_DOUBLE_BUFFER_PREVIEW
-#define PXLCAM_DOUBLE_BUFFER_PREVIEW
+#define PXLCAM_DOUBLE_BUFFER_PREVIEW 1
 #endif
 
 /// Enable automatic exposure quick-tuning
 #ifndef PXLCAM_AUTO_EXPOSURE
-#define PXLCAM_AUTO_EXPOSURE
+#define PXLCAM_AUTO_EXPOSURE 1
 #endif
 
 /// Enable UI overlay (status bar, icons)
 #ifndef PXLCAM_UI_OVERLAY
-#define PXLCAM_UI_OVERLAY
+#define PXLCAM_UI_OVERLAY 1
+#endif
+
+/// Show FPS counter in overlay
+#ifndef PXLCAM_SHOW_FPS_OVERLAY
+#define PXLCAM_SHOW_FPS_OVERLAY 1
 #endif
 
 /// Enable extended self-tests (buffer allocation, dither checksum)
-// #define PXLCAM_SELFTEST_EXT
+#ifndef PXLCAM_SELFTEST_EXT
+#define PXLCAM_SELFTEST_EXT 0
+#endif
 
 // =============================================================================
 // PREVIEW CONFIGURATION

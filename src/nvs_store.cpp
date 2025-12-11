@@ -1,197 +1,226 @@
 /**
  * @file nvs_store.cpp
- * @brief Non-Volatile Storage implementation for PXLcam v1.2.0
+ * @brief Non-Volatile Storage implementation using Preferences for PXLcam v1.2.0
+ * 
+ * Uses Arduino Preferences library (ESP32 NVS wrapper) for simpler API.
  */
 
 #include "nvs_store.h"
 #include "logging.h"
 
-#include <nvs_flash.h>
-#include <nvs.h>
+#include <Preferences.h>
 
 namespace pxlcam::nvs {
 
 namespace {
 
-constexpr const char* kLogTag = "pxlcam-nvs";
+constexpr const char* kLogTag = "nvs";
 constexpr const char* kNamespace = "pxlcam";
 
-nvs_handle_t g_nvsHandle = 0;
+Preferences g_prefs;
 bool g_initialized = false;
 
 }  // anonymous namespace
 
-bool init() {
+//==============================================================================
+// Primary API Implementation
+//==============================================================================
+
+void nvsStoreInit() {
     if (g_initialized) {
-        return true;
+        PXLCAM_LOGI_TAG(kLogTag, "NVS already initialized");
+        return;
     }
     
-    // Initialize NVS flash
-    esp_err_t err = nvs_flash_init();
-    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        PXLCAM_LOGW_TAG(kLogTag, "NVS partition needs erase, reformatting...");
-        err = nvs_flash_erase();
-        if (err != ESP_OK) {
-            PXLCAM_LOGE_TAG(kLogTag, "NVS flash erase failed: %s", esp_err_to_name(err));
-            return false;
-        }
-        err = nvs_flash_init();
-    }
+    // Open namespace in read/write mode
+    bool success = g_prefs.begin(kNamespace, false);
     
-    if (err != ESP_OK) {
-        PXLCAM_LOGE_TAG(kLogTag, "NVS flash init failed: %s", esp_err_to_name(err));
-        return false;
-    }
-    
-    // Open NVS handle
-    err = nvs_open(kNamespace, NVS_READWRITE, &g_nvsHandle);
-    if (err != ESP_OK) {
-        PXLCAM_LOGE_TAG(kLogTag, "NVS open failed: %s", esp_err_to_name(err));
-        return false;
+    if (!success) {
+        PXLCAM_LOGE_TAG(kLogTag, "ERRO: Falha ao abrir NVS namespace '%s'", kNamespace);
+        return;
     }
     
     g_initialized = true;
-    PXLCAM_LOGI_TAG(kLogTag, "NVS initialized (namespace: %s)", kNamespace);
-    return true;
+    
+    // Log initialization success with stats
+    size_t freeEntries = g_prefs.freeEntries();
+    PXLCAM_LOGI_TAG(kLogTag, "NVS inicializado (namespace: %s, free: %d entries)", 
+                    kNamespace, freeEntries);
 }
+
+void saveMode(uint8_t mode) {
+    if (!g_initialized) {
+        PXLCAM_LOGE_TAG(kLogTag, "ERRO: NVS nao inicializado, modo nao salvo");
+        return;
+    }
+    
+    // Validate mode value
+    if (mode > 2) {
+        PXLCAM_LOGW_TAG(kLogTag, "Modo invalido %d, ignorando", mode);
+        return;
+    }
+    
+    size_t written = g_prefs.putUChar(keys::kCaptureMode, mode);
+    
+    if (written == 0) {
+        PXLCAM_LOGE_TAG(kLogTag, "ERRO: Falha ao salvar modo %d", mode);
+    } else {
+        PXLCAM_LOGI_TAG(kLogTag, "Modo salvo: %d", mode);
+    }
+}
+
+uint8_t loadModeOrDefault(uint8_t fallback) {
+    if (!g_initialized) {
+        PXLCAM_LOGW_TAG(kLogTag, "NVS nao inicializado, retornando fallback: %d", fallback);
+        return fallback;
+    }
+    
+    // Check if key exists first
+    if (!g_prefs.isKey(keys::kCaptureMode)) {
+        PXLCAM_LOGI_TAG(kLogTag, "Chave 'mode' nao existe, usando fallback: %d", fallback);
+        return fallback;
+    }
+    
+    uint8_t mode = g_prefs.getUChar(keys::kCaptureMode, fallback);
+    
+    // Validate loaded value
+    if (mode > 2) {
+        PXLCAM_LOGW_TAG(kLogTag, "Modo carregado invalido (%d), usando fallback: %d", mode, fallback);
+        return fallback;
+    }
+    
+    PXLCAM_LOGI_TAG(kLogTag, "Modo carregado: %d", mode);
+    return mode;
+}
+
+//==============================================================================
+// Extended API Implementation
+//==============================================================================
 
 bool isInitialized() {
     return g_initialized;
 }
 
+bool init() {
+    nvsStoreInit();
+    return g_initialized;
+}
+
 bool writeU8(const char* key, uint8_t value) {
-    if (!g_initialized || !key) return false;
-    
-    esp_err_t err = nvs_set_u8(g_nvsHandle, key, value);
-    if (err != ESP_OK) {
-        PXLCAM_LOGE_TAG(kLogTag, "Write U8 failed [%s]: %s", key, esp_err_to_name(err));
+    if (!g_initialized || !key) {
+        PXLCAM_LOGE_TAG(kLogTag, "writeU8 falhou: NVS=%d, key=%s", g_initialized, key ? key : "null");
         return false;
     }
     
-    return commit();
+    size_t written = g_prefs.putUChar(key, value);
+    
+    if (written == 0) {
+        PXLCAM_LOGE_TAG(kLogTag, "Falha ao escrever U8 [%s]=%d", key, value);
+        return false;
+    }
+    
+    PXLCAM_LOGD_TAG(kLogTag, "U8 escrito [%s]=%d", key, value);
+    return true;
 }
 
 uint8_t readU8(const char* key, uint8_t defaultValue) {
-    if (!g_initialized || !key) return defaultValue;
-    
-    uint8_t value = defaultValue;
-    esp_err_t err = nvs_get_u8(g_nvsHandle, key, &value);
-    
-    if (err == ESP_ERR_NVS_NOT_FOUND) {
+    if (!g_initialized || !key) {
         return defaultValue;
     }
     
-    if (err != ESP_OK) {
-        PXLCAM_LOGW_TAG(kLogTag, "Read U8 failed [%s]: %s", key, esp_err_to_name(err));
-        return defaultValue;
-    }
-    
-    return value;
+    return g_prefs.getUChar(key, defaultValue);
 }
 
 bool writeU32(const char* key, uint32_t value) {
-    if (!g_initialized || !key) return false;
-    
-    esp_err_t err = nvs_set_u32(g_nvsHandle, key, value);
-    if (err != ESP_OK) {
-        PXLCAM_LOGE_TAG(kLogTag, "Write U32 failed [%s]: %s", key, esp_err_to_name(err));
+    if (!g_initialized || !key) {
+        PXLCAM_LOGE_TAG(kLogTag, "writeU32 falhou: NVS=%d, key=%s", g_initialized, key ? key : "null");
         return false;
     }
     
-    return commit();
+    size_t written = g_prefs.putULong(key, value);
+    
+    if (written == 0) {
+        PXLCAM_LOGE_TAG(kLogTag, "Falha ao escrever U32 [%s]=%lu", key, value);
+        return false;
+    }
+    
+    PXLCAM_LOGD_TAG(kLogTag, "U32 escrito [%s]=%lu", key, value);
+    return true;
 }
 
 uint32_t readU32(const char* key, uint32_t defaultValue) {
-    if (!g_initialized || !key) return defaultValue;
-    
-    uint32_t value = defaultValue;
-    esp_err_t err = nvs_get_u32(g_nvsHandle, key, &value);
-    
-    if (err == ESP_ERR_NVS_NOT_FOUND) {
+    if (!g_initialized || !key) {
         return defaultValue;
     }
     
-    if (err != ESP_OK) {
-        PXLCAM_LOGW_TAG(kLogTag, "Read U32 failed [%s]: %s", key, esp_err_to_name(err));
-        return defaultValue;
-    }
-    
-    return value;
+    return g_prefs.getULong(key, defaultValue);
 }
 
 bool writeI8(const char* key, int8_t value) {
-    if (!g_initialized || !key) return false;
-    
-    esp_err_t err = nvs_set_i8(g_nvsHandle, key, value);
-    if (err != ESP_OK) {
-        PXLCAM_LOGE_TAG(kLogTag, "Write I8 failed [%s]: %s", key, esp_err_to_name(err));
+    if (!g_initialized || !key) {
+        PXLCAM_LOGE_TAG(kLogTag, "writeI8 falhou: NVS=%d, key=%s", g_initialized, key ? key : "null");
         return false;
     }
     
-    return commit();
+    size_t written = g_prefs.putChar(key, value);
+    
+    if (written == 0) {
+        PXLCAM_LOGE_TAG(kLogTag, "Falha ao escrever I8 [%s]=%d", key, value);
+        return false;
+    }
+    
+    PXLCAM_LOGD_TAG(kLogTag, "I8 escrito [%s]=%d", key, value);
+    return true;
 }
 
 int8_t readI8(const char* key, int8_t defaultValue) {
-    if (!g_initialized || !key) return defaultValue;
-    
-    int8_t value = defaultValue;
-    esp_err_t err = nvs_get_i8(g_nvsHandle, key, &value);
-    
-    if (err == ESP_ERR_NVS_NOT_FOUND) {
+    if (!g_initialized || !key) {
         return defaultValue;
     }
     
-    if (err != ESP_OK) {
-        PXLCAM_LOGW_TAG(kLogTag, "Read I8 failed [%s]: %s", key, esp_err_to_name(err));
-        return defaultValue;
-    }
-    
-    return value;
+    return g_prefs.getChar(key, defaultValue);
 }
 
 bool exists(const char* key) {
-    if (!g_initialized || !key) return false;
+    if (!g_initialized || !key) {
+        return false;
+    }
     
-    uint8_t dummy;
-    esp_err_t err = nvs_get_u8(g_nvsHandle, key, &dummy);
-    return err == ESP_OK;
+    return g_prefs.isKey(key);
 }
 
 bool erase(const char* key) {
-    if (!g_initialized || !key) return false;
-    
-    esp_err_t err = nvs_erase_key(g_nvsHandle, key);
-    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
-        PXLCAM_LOGE_TAG(kLogTag, "Erase key failed [%s]: %s", key, esp_err_to_name(err));
+    if (!g_initialized || !key) {
+        PXLCAM_LOGE_TAG(kLogTag, "erase falhou: NVS=%d, key=%s", g_initialized, key ? key : "null");
         return false;
     }
     
-    return commit();
+    bool success = g_prefs.remove(key);
+    
+    if (success) {
+        PXLCAM_LOGI_TAG(kLogTag, "Chave removida: %s", key);
+    } else {
+        PXLCAM_LOGW_TAG(kLogTag, "Falha ao remover chave: %s", key);
+    }
+    
+    return success;
 }
 
 bool eraseAll() {
-    if (!g_initialized) return false;
-    
-    esp_err_t err = nvs_erase_all(g_nvsHandle);
-    if (err != ESP_OK) {
-        PXLCAM_LOGE_TAG(kLogTag, "Erase all failed: %s", esp_err_to_name(err));
+    if (!g_initialized) {
+        PXLCAM_LOGE_TAG(kLogTag, "eraseAll falhou: NVS nao inicializado");
         return false;
     }
     
-    PXLCAM_LOGI_TAG(kLogTag, "All NVS data erased");
-    return commit();
-}
-
-bool commit() {
-    if (!g_initialized) return false;
+    bool success = g_prefs.clear();
     
-    esp_err_t err = nvs_commit(g_nvsHandle);
-    if (err != ESP_OK) {
-        PXLCAM_LOGE_TAG(kLogTag, "NVS commit failed: %s", esp_err_to_name(err));
-        return false;
+    if (success) {
+        PXLCAM_LOGI_TAG(kLogTag, "Todos os dados NVS apagados");
+    } else {
+        PXLCAM_LOGE_TAG(kLogTag, "Falha ao apagar dados NVS");
     }
     
-    return true;
+    return success;
 }
 
 }  // namespace pxlcam::nvs

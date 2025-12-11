@@ -19,6 +19,7 @@
 #include "capture_pipeline.h"
 #include "ui_menu.h"
 #include "nvs_store.h"
+#include "display_menu.h"
 
 namespace pxlcam {
 
@@ -44,6 +45,7 @@ void AppController::begin() {
     pxlcam::nvs::init();
     pxlcam::mode::init();
     pxlcam::ui::init();
+    pxlcam::menu::init();  // Modal menu system
 
     transitionTo(AppState::InitDisplay);
 }
@@ -82,9 +84,25 @@ void AppController::tick() {
                 return;
                 
             case ButtonEvent::VeryLongPress:
-                // Very long press (2s+): open mode menu
+                // Very long press (2s+): open mode menu (modal)
 #if PXLCAM_ENABLE_MENU
-                pxlcam::ui::showModeMenu();
+                {
+                    // Convert current mode to menu index
+                    uint8_t currentModeVal = static_cast<uint8_t>(pxlcam::mode::getCurrentMode());
+                    uint8_t menuIdx = pxlcam::menu::fromCaptureModeValue(currentModeVal);
+                    
+                    // Show modal menu - blocks until selection
+                    pxlcam::menu::MenuResult result = pxlcam::menu::showModalAt(menuIdx);
+                    
+                    // Apply selection if not cancelled
+                    if (result != pxlcam::menu::MODE_CANCELLED) {
+                        uint8_t newModeVal = pxlcam::menu::toCaptureModeValue(result);
+                        pxlcam::mode::setMode(static_cast<pxlcam::mode::CaptureMode>(newModeVal), true);
+                        PXLCAM_LOGI("Mode changed to: %s", pxlcam::menu::getResultName(result));
+                    }
+                    
+                    showIdleScreen();
+                }
 #endif
                 return;
                 

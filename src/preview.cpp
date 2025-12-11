@@ -17,8 +17,13 @@
 #include "preview_dither.h"
 #endif
 
+#if PXLCAM_ENABLE_NIGHT
+#include "exposure_ctrl.h"
+#endif
+
 #include "fps_counter.h"
 #include "display_ui.h"
+#include <cstdio>
 
 namespace pxlcam::preview {
 
@@ -262,20 +267,77 @@ void runPreviewLoop() {
     // Initial UI setup
 #if PXLCAM_GAMEBOY_DITHER
     pxlcam::display::PreviewMode uiMode = pxlcam::display::PreviewMode::GameBoy;
+    s_ditherMode = pxlcam::dither::DitherMode::GameBoy;
 #else
     pxlcam::display::PreviewMode uiMode = pxlcam::display::PreviewMode::Auto;
 #endif
 
+    uint32_t buttonDownMs = 0;
+    bool modeChanged = false;
+
     while (true) {
 
-        // Exit preview on button press
+        // Button handling: short press = exit, long hold (2s) = cycle mode
         if (isButtonPressed()) {
-            delay(50);
-            if (isButtonPressed()) {
-                PXLCAM_LOGI("[PREVIEW] Exit preview");
-                waitForButtonRelease(300);
-                return;
+            if (buttonDownMs == 0) {
+                buttonDownMs = millis();
             }
+            
+            uint32_t holdTime = millis() - buttonDownMs;
+            
+            // Long hold (2s) = cycle preview mode
+            if (holdTime >= 2000 && !modeChanged) {
+                modeChanged = true;
+                
+#if PXLCAM_GAMEBOY_DITHER
+                // Cycle: GameBoy -> Night -> Auto -> GameBoy
+                switch (s_ditherMode) {
+                    case pxlcam::dither::DitherMode::GameBoy:
+                        s_ditherMode = pxlcam::dither::DitherMode::Night;
+                        uiMode = pxlcam::display::PreviewMode::Night;
+#if PXLCAM_ENABLE_NIGHT
+                        pxlcam::exposure::applyNightMode();
+#endif
+                        PXLCAM_LOGI("[PREVIEW] Mode: Night");
+                        break;
+                    case pxlcam::dither::DitherMode::Night:
+                        s_ditherMode = pxlcam::dither::DitherMode::Threshold;
+                        uiMode = pxlcam::display::PreviewMode::Auto;
+#if PXLCAM_ENABLE_NIGHT
+                        pxlcam::exposure::applyStandardMode();
+#endif
+                        PXLCAM_LOGI("[PREVIEW] Mode: Auto");
+                        break;
+                    default:
+                        s_ditherMode = pxlcam::dither::DitherMode::GameBoy;
+                        uiMode = pxlcam::display::PreviewMode::GameBoy;
+                        PXLCAM_LOGI("[PREVIEW] Mode: GameBoy");
+                        break;
+                }
+                pxlcam::dither::setDitherMode(s_ditherMode);
+#endif
+                
+                // Visual feedback for mode change
+                pxlcam::display::clearDisplay();
+                char modeBuf[32];
+                snprintf(modeBuf, sizeof(modeBuf), "Mode: %s", pxlcam::display::getModeName(uiMode));
+                pxlcam::display::printDisplay(modeBuf, 1, 0, 24, false, false);
+                pxlcam::display::updateDisplay();
+                delay(500);
+            }
+        } else {
+            // Button released
+            if (buttonDownMs > 0) {
+                uint32_t holdTime = millis() - buttonDownMs;
+                
+                // Short press (< 500ms) = exit preview
+                if (holdTime < 500 && !modeChanged) {
+                    PXLCAM_LOGI("[PREVIEW] Exit preview (short press)");
+                    return;
+                }
+            }
+            buttonDownMs = 0;
+            modeChanged = false;
         }
 
         // Capture and process frame
@@ -284,7 +346,7 @@ void runPreviewLoop() {
 #if PXLCAM_SHOW_FPS_OVERLAY
         // Draw FPS overlay
         int fps = s_fpsCounter.getFPS();
-        pxlcam::display::drawStatusBar(fps, true, 100, uiMode);  // TODO: real SD/battery status
+        pxlcam::display::drawStatusBar(fps, true, 100, uiMode);
 #endif
 
         // Swap display buffer

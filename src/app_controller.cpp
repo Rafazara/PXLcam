@@ -8,6 +8,11 @@
 
 #include "logging.h"
 #include "preview.h"
+#include "pxlcam_config.h"
+
+#if PXLCAM_AUTO_EXPOSURE
+#include "exposure_ctrl.h"
+#endif
 
 namespace pxlcam {
 
@@ -134,6 +139,17 @@ void AppController::handleInitCamera() {
     } else {
         filter::reset();
     }
+
+#if PXLCAM_AUTO_EXPOSURE
+    // Initialize auto exposure control
+    pxlcam::exposure::ExposureConfig expConfig;
+    expConfig.autoExposure = true;
+    expConfig.autoGain = true;
+    expConfig.targetBrightness = 128;
+    expConfig.tolerance = 20;
+    pxlcam::exposure::init(expConfig);
+    PXLCAM_LOGI("Auto exposure initialized");
+#endif
 
     if (cameraUsesRgb_) {
         showStatus("PXLcam pronta\nPressione botao", true);

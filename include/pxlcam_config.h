@@ -1,7 +1,7 @@
 #pragma once
 /**
  * @file pxlcam_config.h
- * @brief Compile-time configuration flags for PXLcam v1.1.0
+ * @brief Compile-time configuration flags for PXLcam v1.2.0
  * 
  * All feature flags can be enabled via platformio.ini build_flags
  */
@@ -10,7 +10,7 @@
 // VERSION
 // =============================================================================
 #ifndef PXLCAM_VERSION
-#define PXLCAM_VERSION "1.1.0"
+#define PXLCAM_VERSION "1.2.0"
 #endif
 
 // =============================================================================
@@ -104,8 +104,30 @@
 /// Long press threshold (ms)
 #define PXLCAM_LONG_PRESS_MS 1000
 
+/// Menu hold threshold (ms)
+#define PXLCAM_MENU_HOLD_MS 2000
+
 /// Button debounce time (ms)
 #define PXLCAM_DEBOUNCE_MS 50
+
+// =============================================================================
+// NVS CONFIGURATION (v1.2.0)
+// =============================================================================
+
+/// Enable NVS persistence
+#ifndef PXLCAM_ENABLE_NVS
+#define PXLCAM_ENABLE_NVS 1
+#endif
+
+/// Enable stylized capture (apply dithering to saved images)
+#ifndef PXLCAM_STYLIZED_CAPTURE
+#define PXLCAM_STYLIZED_CAPTURE 1
+#endif
+
+/// Enable OLED menu system
+#ifndef PXLCAM_ENABLE_MENU
+#define PXLCAM_ENABLE_MENU 1
+#endif
 
 // =============================================================================
 // PSRAM CONFIGURATION

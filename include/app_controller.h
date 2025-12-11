@@ -32,6 +32,8 @@ class AppController {
     void transitionTo(AppState nextState);
     void enterError(const char *message);
     void showStatus(const char *message, bool clear = true);
+    void showIdleScreen();  // v1.2.0: unified idle display
+    void handleMenuInput(); // v1.2.0: menu button handling
 
     void handleInitDisplay();
     void handleInitStorage();
@@ -74,6 +76,11 @@ class AppController {
     uint32_t saveDurationMs_ = 0;
 
     char lastMessage_[64] = {0};
+    
+    // v1.2.0: stylized capture state
+    uint8_t* processedImageData_ = nullptr;
+    size_t processedImageLen_ = 0;
+    const char* processedExtension_ = "raw";
 };
 
 }  // namespace pxlcam

@@ -17,6 +17,7 @@
 #include <functional>
 #include "ui_theme.h"
 #include "../features/menu_system.h"
+#include "../features/capture_pipeline.h"
 
 namespace pxlcam {
 namespace ui {
@@ -186,6 +187,27 @@ public:
 private:
     float fps_;
     uint32_t frameCount_;
+};
+
+/**
+ * @brief Capture screen implementation (with mini preview confirmation)
+ */
+class CaptureScreen : public IScreen {
+public:
+    CaptureScreen();
+    
+    void onEnter() override;
+    void onExit() override;
+    void update() override;
+    void render() override;
+    ScreenId getId() const override { return ScreenId::CAPTURE; }
+
+private:
+    void renderMiniPreview();
+    void renderStats();
+    
+    uint32_t enterTime_;
+    bool captureComplete_;
 };
 
 /**

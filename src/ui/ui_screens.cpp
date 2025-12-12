@@ -429,6 +429,120 @@ void PreviewScreen::render() {
 }
 
 // ============================================================================
+// CaptureScreen Implementation (with mini preview confirmation)
+// ============================================================================
+
+CaptureScreen::CaptureScreen()
+    : enterTime_(0)
+    , captureComplete_(false)
+{
+}
+
+void CaptureScreen::onEnter() {
+    Serial.println("[CaptureScreen] Enter - showing capture confirmation");
+    enterTime_ = millis();
+    captureComplete_ = false;
+}
+
+void CaptureScreen::onExit() {
+    Serial.println("[CaptureScreen] Exit");
+}
+
+void CaptureScreen::update() {
+    // Mark complete after pipeline has finished
+    const auto& stats = features::capture::getLastStats();
+    if (stats.totalTimeMs > 0 && !captureComplete_) {
+        captureComplete_ = true;
+    }
+}
+
+void CaptureScreen::render() {
+    auto& display = MockDisplay::instance();
+    auto& theme = UiTheme::instance();
+    auto& statusBar = theme.getStatusBar();
+    
+    display.clear();
+    
+    // ===== Status Bar =====
+    display.drawText(2, 1, "CAPTURE", Fonts::SMALL);
+    display.drawText(Display::WIDTH - 45, 1, "[###]", Fonts::SMALL);
+    display.drawText(Display::WIDTH - 22, 1, "12:00", Fonts::SMALL);
+    display.drawLine(0, statusBar.height, Display::WIDTH, statusBar.height);
+    
+    if (captureComplete_) {
+        // Show confirmation with mini preview
+        renderMiniPreview();
+        renderStats();
+        
+        // Hint bar
+        display.drawLine(0, theme.getHintBar().y - 1, Display::WIDTH, theme.getHintBar().y - 1);
+        display.drawText(2, theme.getHintBar().y + 1, "Saved! TAP: Continue", Fonts::SMALL);
+    } else {
+        // Capture in progress
+        const char* msg = "Capturing...";
+        uint8_t x = theme.centerTextX(msg, Fonts::MEDIUM, Display::WIDTH);
+        display.drawText(x, 30, msg, Fonts::MEDIUM);
+        
+        // Progress indicator (simple)
+        uint32_t elapsed = millis() - enterTime_;
+        uint8_t dots = (elapsed / 200) % 4;
+        char progress[8] = "    ";
+        for (uint8_t i = 0; i < dots; i++) progress[i] = '.';
+        display.drawText(60, 45, progress, Fonts::SMALL);
+    }
+    
+    display.display();
+}
+
+void CaptureScreen::renderMiniPreview() {
+    auto& display = MockDisplay::instance();
+    const auto& preview = features::capture::getLastPreview();
+    
+    if (!preview.valid) {
+        display.drawText(10, 20, "[No Preview]", Fonts::SMALL);
+        return;
+    }
+    
+    // Draw mini preview representation (64x64 -> simplified for mock display)
+    // Center it horizontally
+    uint8_t previewX = 2;
+    uint8_t previewY = 14;
+    uint8_t displaySize = 40;  // Scaled down for mock display
+    
+    // Draw frame around preview area
+    display.drawRect(previewX, previewY, displaySize, displaySize, false);
+    
+    // Simulated preview content (show "[64x64]" text inside)
+    display.drawText(previewX + 4, previewY + 15, "64x64", Fonts::SMALL);
+    
+    // Show "OK" checkmark indicator
+    display.drawText(previewX + displaySize + 4, previewY + 10, "OK!", Fonts::SMALL);
+}
+
+void CaptureScreen::renderStats() {
+    auto& display = MockDisplay::instance();
+    const auto& stats = features::capture::getLastStats();
+    
+    // Stats on right side of screen
+    uint8_t statsX = 65;
+    uint8_t statsY = 14;
+    
+    char buf[24];
+    
+    // Resolution
+    snprintf(buf, sizeof(buf), "%dx%d", stats.width, stats.height);
+    display.drawText(statsX, statsY, buf, Fonts::SMALL);
+    
+    // Total time
+    snprintf(buf, sizeof(buf), "%lums", stats.totalTimeMs);
+    display.drawText(statsX, statsY + 10, buf, Fonts::SMALL);
+    
+    // BMP size
+    snprintf(buf, sizeof(buf), "%luB", (unsigned long)stats.bmpSizeBytes);
+    display.drawText(statsX, statsY + 20, buf, Fonts::SMALL);
+}
+
+// ============================================================================
 // ScreenManager Implementation
 // ============================================================================
 

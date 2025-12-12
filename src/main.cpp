@@ -25,6 +25,7 @@
 #include "mocks/mock_button.h"
 #include "features/menu_system.h"
 #include "features/settings.h"
+#include "features/capture_pipeline.h"
 #include "ui/ui_theme.h"
 #include "ui/ui_screens.h"
 
@@ -49,6 +50,7 @@ pxlcam::ui::SplashScreen splashScreen;
 pxlcam::ui::IdleScreen idleScreen;
 pxlcam::ui::MenuScreen* menuScreen = nullptr;
 pxlcam::ui::PreviewScreen previewScreen;
+pxlcam::ui::CaptureScreen captureScreen;
 
 // Timing
 uint32_t lastUpdateTime = 0;
@@ -199,31 +201,46 @@ void setupStateMachine() {
         }
     });
     
-    // CAPTURE State
+    // CAPTURE State - Stylized capture pipeline
     stateMachine.registerState(State::CAPTURE, {
         .onEnter = []() {
-            Serial.println("[State] CAPTURE: Taking photo...");
-            // Note: Actual capture uses legacy storage module
+            Serial.println("[State] CAPTURE: Starting stylized capture pipeline...");
+            pxlcam::ui::ScreenManager::instance().setScreen(pxlcam::ui::ScreenId::CAPTURE);
+            
+            // Run capture pipeline with current AppContext settings
+            auto& ctx = pxlcam::core::AppContext::instance();
+            auto result = pxlcam::features::capture::runCapture(ctx);
+            
+            if (result == pxlcam::features::capture::CaptureResult::SUCCESS) {
+                Serial.println("[State] CAPTURE: Pipeline completed successfully");
+                // Show confirmation screen with mini preview
+                // (UI will display the mini preview from getLastPreview())
+            } else {
+                Serial.printf("[State] CAPTURE: Pipeline failed: %s\n",
+                             pxlcam::features::capture::resultToString(result));
+            }
+            
+            // Auto-complete after pipeline finishes
+            stateMachine.handleEvent(pxlcam::core::Event::CAPTURE_COMPLETE);
         },
         .onExit = []() {
-            Serial.println("[State] CAPTURE: Complete");
+            Serial.println("[State] CAPTURE: Exiting");
         },
         .onUpdate = []() {
-            // Simulate capture completion
-            static uint32_t captureStart = 0;
-            if (captureStart == 0) {
-                captureStart = millis();
-            }
-            if (millis() - captureStart > 500) {  // 500ms capture simulation
-                captureStart = 0;
-                stateMachine.handleEvent(pxlcam::core::Event::CAPTURE_COMPLETE);
-            }
+            // No periodic update needed - capture runs in onEnter
         },
         .onEvent = [](Event e) -> State {
-            if (e == Event::CAPTURE_COMPLETE) {
-                return State::PREVIEW;
+            switch (e) {
+                case Event::CAPTURE_COMPLETE:
+                    // Return to IDLE after capture (confirmation shown)
+                    return State::IDLE;
+                case Event::BUTTON_PRESS:
+                case Event::BUTTON_HOLD:
+                    // Allow user to skip back to idle
+                    return State::IDLE;
+                default:
+                    return State::CAPTURE;
             }
-            return State::CAPTURE;
         }
     });
     
@@ -272,6 +289,7 @@ void initializeV12Components() {
     menuScreen = new pxlcam::ui::MenuScreen(&menuSystem);
     screenMgr.registerScreen(menuScreen);
     screenMgr.registerScreen(&previewScreen);
+    screenMgr.registerScreen(&captureScreen);
     
     Serial.println("[Main] v1.2.0 components initialized");
 }

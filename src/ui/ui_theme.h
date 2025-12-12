@@ -240,9 +240,81 @@ namespace Spacing {
 namespace Timing {
     constexpr uint16_t CURSOR_BLINK = 500;
     constexpr uint16_t MENU_SCROLL = 100;
-    constexpr uint16_t SPLASH_DURATION = 2000;
+    constexpr uint16_t SPLASH_DURATION = 2500;
     constexpr uint16_t HINT_FADE = 300;
+    constexpr uint16_t HINT_AUTO_HIDE = 3000;    ///< Auto-hide hint bar after inactivity
     constexpr uint16_t DEBOUNCE = 50;
+    constexpr uint16_t FADE_DURATION = 200;      ///< Screen fade transition duration
+    constexpr uint16_t SHUTTER_ANIMATION = 150;  ///< Shutter animation frame duration
+    constexpr uint16_t MODE_INDICATOR_BLINK = 800; ///< Mode indicator blink rate
+}
+
+/**
+ * @brief Animation types for screen transitions
+ */
+enum class TransitionType : uint8_t {
+    NONE = 0,       ///< No transition
+    FADE,           ///< Fade in/out
+    SLIDE_LEFT,     ///< Slide from right to left
+    SLIDE_UP,       ///< Slide from bottom to top
+    SHUTTER         ///< Camera shutter effect
+};
+
+/**
+ * @brief Animation state for UI transitions
+ */
+struct AnimationState {
+    TransitionType type;
+    uint32_t startTime;
+    uint16_t duration;
+    bool active;
+    uint8_t progress;   ///< 0-255 progress
+    
+    void start(TransitionType t, uint16_t dur = Timing::FADE_DURATION) {
+        type = t;
+        startTime = 0;  // Set by caller with millis()
+        duration = dur;
+        active = true;
+        progress = 0;
+    }
+    
+    void stop() {
+        active = false;
+        progress = 255;
+    }
+    
+    void reset() {
+        type = TransitionType::NONE;
+        startTime = 0;
+        duration = 0;
+        active = false;
+        progress = 0;
+    }
+};
+
+/**
+ * @brief Shutter animation frames (camera capture effect)
+ */
+namespace ShutterAnim {
+    constexpr uint8_t FRAME_COUNT = 4;
+    constexpr uint8_t FRAME_DURATION = Timing::SHUTTER_ANIMATION;
+    
+    // Shutter closing pattern (percentage of screen covered)
+    constexpr uint8_t FRAMES[FRAME_COUNT] = {25, 50, 75, 100};
+}
+
+/**
+ * @brief Status bar icons (ASCII representations for mock display)
+ */
+namespace Icons {
+    constexpr const char* BATTERY_FULL = "[###]";
+    constexpr const char* BATTERY_MID = "[## ]";
+    constexpr const char* BATTERY_LOW = "[#  ]";
+    constexpr const char* BATTERY_EMPTY = "[   ]";
+    constexpr const char* STORAGE_OK = "SD";
+    constexpr const char* STORAGE_NONE = "--";
+    constexpr const char* WIFI_ON = "W";
+    constexpr const char* WIFI_OFF = " ";
 }
 
 } // namespace ui

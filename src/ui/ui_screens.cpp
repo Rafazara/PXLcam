@@ -91,16 +91,19 @@ void MockDisplay::clear() {
 }
 
 void MockDisplay::drawText(uint8_t x, uint8_t y, const char* text, const FontConfig& font) {
+    if (fadeLevel_ < 128) return;  // Don't draw when faded out
     Serial.printf("[Display] Text @(%d,%d) s%d: '%s'\n", x, y, font.scale, text);
     dirty_ = true;
 }
 
 void MockDisplay::drawRect(uint8_t x, uint8_t y, uint8_t w, uint8_t h, bool filled) {
+    if (fadeLevel_ < 128 && !filled) return;
     Serial.printf("[Display] Rect @(%d,%d) %dx%d %s\n", x, y, w, h, filled ? "filled" : "outline");
     dirty_ = true;
 }
 
 void MockDisplay::drawLine(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2) {
+    if (fadeLevel_ < 128) return;
     Serial.printf("[Display] Line (%d,%d)->(%d,%d)\n", x1, y1, x2, y2);
     dirty_ = true;
 }
@@ -120,15 +123,199 @@ void MockDisplay::setCursor(uint8_t x, uint8_t y) {
 }
 
 void MockDisplay::print(const char* text) {
+    if (fadeLevel_ < 128) return;
     Serial.printf("[Display] Print @(%d,%d): '%s'\n", cursorX_, cursorY_, text);
     dirty_ = true;
 }
 
 void MockDisplay::display() {
     if (dirty_) {
-        Serial.println("[Display] Buffer committed");
+        if (fadeLevel_ < 255) {
+            Serial.printf("[Display] Buffer committed (fade: %d%%)\n", (fadeLevel_ * 100) / 255);
+        } else {
+            Serial.println("[Display] Buffer committed");
+        }
         dirty_ = false;
     }
+}
+
+void MockDisplay::setFadeLevel(uint8_t level) {
+    if (fadeLevel_ != level) {
+        fadeLevel_ = level;
+        Serial.printf("[Display] Fade level: %d%%\n", (level * 100) / 255);
+    }
+}
+
+void MockDisplay::drawShutter(uint8_t closePercent) {
+    if (closePercent == 0) return;
+    
+    // Simulate shutter effect - draw horizontal bars from top and bottom
+    uint8_t shutterHeight = (Display::HEIGHT * closePercent) / 200;  // Half from each side
+    
+    Serial.printf("[Display] Shutter effect: %d%% closed\n", closePercent);
+    
+    // Top shutter blade
+    if (shutterHeight > 0) {
+        drawRect(0, 0, Display::WIDTH, shutterHeight, true);
+    }
+    // Bottom shutter blade
+    if (shutterHeight > 0) {
+        drawRect(0, Display::HEIGHT - shutterHeight, Display::WIDTH, shutterHeight, true);
+    }
+    
+    dirty_ = true;
+}
+
+// ============================================================================
+// StatusBarRenderer Implementation
+// ============================================================================
+
+void StatusBarRenderer::render(const char* modeText, float fps) {
+    auto& display = MockDisplay::instance();
+    auto& theme = UiTheme::instance();
+    auto& statusBar = theme.getStatusBar();
+    
+    // Left: Mode indicator with blinking dot for active state
+    static uint32_t lastBlink = 0;
+    static bool blinkOn = true;
+    if (millis() - lastBlink > Timing::MODE_INDICATOR_BLINK) {
+        blinkOn = !blinkOn;
+        lastBlink = millis();
+    }
+    
+    char modeWithDot[16];
+    snprintf(modeWithDot, sizeof(modeWithDot), "%s%s", blinkOn ? "*" : " ", modeText);
+    display.drawText(2, 1, modeWithDot, Fonts::SMALL);
+    
+    // Center: FPS if provided
+    if (fps > 0.0f) {
+        renderFps(50, 1, fps);
+    }
+    
+    // Right side: Battery + Clock
+    renderBattery(Display::WIDTH - 45, 1);
+    renderClock(Display::WIDTH - 22, 1);
+    
+    // Status bar separator line
+    display.drawLine(0, statusBar.height, Display::WIDTH, statusBar.height);
+}
+
+void StatusBarRenderer::renderBattery(uint8_t x, uint8_t y) {
+    auto& display = MockDisplay::instance();
+    
+    // Simulated battery level (cycle for demo)
+    static uint8_t fakeBatteryLevel = 3;
+    static uint32_t lastUpdate = 0;
+    if (millis() - lastUpdate > 10000) {
+        fakeBatteryLevel = (fakeBatteryLevel > 0) ? fakeBatteryLevel - 1 : 3;
+        lastUpdate = millis();
+    }
+    
+    const char* icon;
+    switch (fakeBatteryLevel) {
+        case 3: icon = Icons::BATTERY_FULL; break;
+        case 2: icon = Icons::BATTERY_MID; break;
+        case 1: icon = Icons::BATTERY_LOW; break;
+        default: icon = Icons::BATTERY_EMPTY; break;
+    }
+    display.drawText(x, y, icon, Fonts::SMALL);
+}
+
+void StatusBarRenderer::renderClock(uint8_t x, uint8_t y) {
+    auto& display = MockDisplay::instance();
+    
+    // Simulated clock (increments)
+    static uint8_t fakeHour = 12;
+    static uint8_t fakeMin = 0;
+    static uint32_t lastUpdate = 0;
+    if (millis() - lastUpdate > 60000) {
+        fakeMin++;
+        if (fakeMin >= 60) {
+            fakeMin = 0;
+            fakeHour = (fakeHour + 1) % 24;
+        }
+        lastUpdate = millis();
+    }
+    
+    char timeStr[6];
+    snprintf(timeStr, sizeof(timeStr), "%02d:%02d", fakeHour, fakeMin);
+    display.drawText(x, y, timeStr, Fonts::SMALL);
+}
+
+void StatusBarRenderer::renderFps(uint8_t x, uint8_t y, float fps) {
+    auto& display = MockDisplay::instance();
+    char fpsStr[10];
+    snprintf(fpsStr, sizeof(fpsStr), "%.0fFPS", fps);
+    display.drawText(x, y, fpsStr, Fonts::SMALL);
+}
+
+// ============================================================================
+// HintBar Implementation (with auto-hide)
+// ============================================================================
+
+void HintBar::show(const char* hint) {
+    hint_ = hint;
+    visible_ = true;
+    fadeOut_ = false;
+    fadeProgress_ = 255;
+    lastActivityTime_ = millis();
+    Serial.printf("[HintBar] Show: '%s'\n", hint ? hint : "(null)");
+}
+
+void HintBar::hide() {
+    if (visible_ && !fadeOut_) {
+        fadeOut_ = true;
+        fadeProgress_ = 255;
+        Serial.println("[HintBar] Starting fade out");
+    }
+}
+
+void HintBar::update() {
+    uint32_t now = millis();
+    
+    // Auto-hide after inactivity
+    if (visible_ && !fadeOut_ && (now - lastActivityTime_ > Timing::HINT_AUTO_HIDE)) {
+        fadeOut_ = true;
+        fadeProgress_ = 255;
+        Serial.println("[HintBar] Auto-hide triggered");
+    }
+    
+    // Update fade animation
+    if (fadeOut_ && fadeProgress_ > 0) {
+        uint32_t elapsed = now - lastActivityTime_ - Timing::HINT_AUTO_HIDE;
+        fadeProgress_ = 255 - min((elapsed * 255) / Timing::HINT_FADE, (uint32_t)255);
+        
+        if (fadeProgress_ == 0) {
+            visible_ = false;
+            fadeOut_ = false;
+            Serial.println("[HintBar] Hidden");
+        }
+    }
+}
+
+void HintBar::render() {
+    if (!visible_ || !hint_) return;
+    
+    auto& display = MockDisplay::instance();
+    auto& theme = UiTheme::instance();
+    auto& hintBar = theme.getHintBar();
+    
+    // Draw separator line
+    display.drawLine(0, hintBar.y - 1, Display::WIDTH, hintBar.y - 1);
+    
+    // Draw hint text (with fade effect simulation)
+    if (fadeProgress_ > 128) {
+        display.drawText(2, hintBar.y + 1, hint_, Fonts::SMALL);
+    } else if (fadeProgress_ > 0) {
+        // Fading - show dimmed (in real hardware, would use contrast)
+        Serial.printf("[HintBar] Fading: %d%%\n", (fadeProgress_ * 100) / 255);
+    }
+}
+
+void HintBar::resetAutoHide() {
+    lastActivityTime_ = millis();
+    fadeOut_ = false;
+    fadeProgress_ = 255;
 }
 
 // ============================================================================
@@ -138,21 +325,46 @@ void MockDisplay::display() {
 SplashScreen::SplashScreen()
     : startTime_(0)
     , complete_(false)
+    , fadePhase_(0)
 {
 }
 
 void SplashScreen::onEnter() {
-    Serial.println("[SplashScreen] Enter");
+    Serial.println("[SplashScreen] Enter - PXLcam v1.2");
     startTime_ = millis();
     complete_ = false;
+    fadePhase_ = 0;  // Start with fade in
+    MockDisplay::instance().setFadeLevel(0);  // Start black
 }
 
 void SplashScreen::onExit() {
     Serial.println("[SplashScreen] Exit");
+    MockDisplay::instance().setFadeLevel(255);  // Ensure full brightness
 }
 
 void SplashScreen::update() {
-    if (!complete_ && (millis() - startTime_ >= Timing::SPLASH_DURATION)) {
+    uint32_t elapsed = millis() - startTime_;
+    
+    // Phase timing: 400ms fade in, display, 400ms fade out
+    constexpr uint32_t FADE_IN_TIME = 400;
+    constexpr uint32_t FADE_OUT_START = Timing::SPLASH_DURATION - 400;
+    
+    if (elapsed < FADE_IN_TIME) {
+        // Fade in phase
+        fadePhase_ = 0;
+        uint8_t fadeLevel = (elapsed * 255) / FADE_IN_TIME;
+        MockDisplay::instance().setFadeLevel(fadeLevel);
+    } else if (elapsed < FADE_OUT_START) {
+        // Display phase
+        fadePhase_ = 1;
+        MockDisplay::instance().setFadeLevel(255);
+    } else if (elapsed < Timing::SPLASH_DURATION) {
+        // Fade out phase
+        fadePhase_ = 2;
+        uint32_t fadeElapsed = elapsed - FADE_OUT_START;
+        uint8_t fadeLevel = 255 - ((fadeElapsed * 255) / 400);
+        MockDisplay::instance().setFadeLevel(fadeLevel);
+    } else if (!complete_) {
         complete_ = true;
         Serial.println("[SplashScreen] Complete");
     }
@@ -164,22 +376,55 @@ void SplashScreen::render() {
     
     display.clear();
     
-    // Center "PXLcam" title
+    // ===== Main Title: PXLcam =====
     const char* title = "PXLcam";
     uint8_t x = theme.centerTextX(title, Fonts::LARGE, Display::WIDTH);
-    display.drawText(x, 15, title, Fonts::LARGE);
+    display.drawText(x, 12, title, Fonts::LARGE);
     
-    // Version
-    const char* version = "v1.2.0";
-    x = theme.centerTextX(version, Fonts::SMALL, Display::WIDTH);
-    display.drawText(x, 45, version, Fonts::SMALL);
+    // ===== Subtitle with em dash =====
+    const char* subtitle = "- v1.2 -";
+    x = theme.centerTextX(subtitle, Fonts::SMALL, Display::WIDTH);
+    display.drawText(x, 38, subtitle, Fonts::SMALL);
     
-    // Loading indicator
-    const char* loading = "Loading...";
-    x = theme.centerTextX(loading, Fonts::SMALL, Display::WIDTH);
-    display.drawText(x, 55, loading, Fonts::SMALL);
+    // ===== Loading bar animation =====
+    renderLoadingBar();
+    
+    // ===== Decorative lines =====
+    display.drawLine(20, 8, 108, 8);   // Top line
+    display.drawLine(20, 56, 108, 56); // Bottom line
     
     display.display();
+}
+
+void SplashScreen::renderFadeEffect() {
+    // Fade effect is handled by setFadeLevel in update()
+}
+
+void SplashScreen::renderLoadingBar() {
+    auto& display = MockDisplay::instance();
+    
+    uint32_t elapsed = millis() - startTime_;
+    uint8_t progress = min((elapsed * 100) / Timing::SPLASH_DURATION, (uint32_t)100);
+    
+    // Loading bar position
+    uint8_t barX = 24;
+    uint8_t barY = 48;
+    uint8_t barW = 80;
+    uint8_t barH = 4;
+    
+    // Draw outline
+    display.drawRect(barX, barY, barW, barH, false);
+    
+    // Draw fill
+    uint8_t fillW = (barW - 2) * progress / 100;
+    if (fillW > 0) {
+        display.drawRect(barX + 1, barY + 1, fillW, barH - 2, true);
+    }
+    
+    // Progress percentage
+    char progStr[8];
+    snprintf(progStr, sizeof(progStr), "%d%%", progress);
+    display.drawText(barX + barW + 4, barY - 1, progStr, Fonts::SMALL);
 }
 
 // ============================================================================
@@ -195,6 +440,7 @@ IdleScreen::IdleScreen()
 void IdleScreen::onEnter() {
     Serial.println("[IdleScreen] Enter");
     lastUpdateTime_ = millis();
+    HintBar::instance().show("TAP: Menu");
 }
 
 void IdleScreen::onExit() {
@@ -202,24 +448,17 @@ void IdleScreen::onExit() {
 }
 
 void IdleScreen::update() {
-    // Could update status periodically
+    HintBar::instance().update();
 }
 
 void IdleScreen::render() {
     auto& display = MockDisplay::instance();
     auto& theme = UiTheme::instance();
-    auto& statusBar = theme.getStatusBar();
     
     display.clear();
     
-    // ===== Status Bar =====
-    // Left: Current mode
-    display.drawText(2, 1, "IDLE", Fonts::SMALL);
-    // Right: Fake battery icon + clock
-    display.drawText(Display::WIDTH - 45, 1, "[###]", Fonts::SMALL);
-    display.drawText(Display::WIDTH - 22, 1, "12:00", Fonts::SMALL);
-    // Status bar separator line
-    display.drawLine(0, statusBar.height, Display::WIDTH, statusBar.height);
+    // ===== Status Bar (using shared renderer) =====
+    StatusBarRenderer::render("IDLE");
     
     // Center content
     const char* msg = "Press button";
@@ -230,9 +469,8 @@ void IdleScreen::render() {
     x = theme.centerTextX(statusText_, Fonts::SMALL, Display::WIDTH);
     display.drawText(x, 45, statusText_, Fonts::SMALL);
     
-    // Hint bar
-    display.drawLine(0, theme.getHintBar().y - 1, Display::WIDTH, theme.getHintBar().y - 1);
-    display.drawText(2, theme.getHintBar().y + 1, "TAP: Menu", Fonts::SMALL);
+    // Hint bar with auto-hide
+    HintBar::instance().render();
     
     display.display();
 }
@@ -254,6 +492,7 @@ MenuScreen::MenuScreen(features::MenuSystem* menuSystem)
 void MenuScreen::onEnter() {
     Serial.println("[MenuScreen] Enter");
     scrollOffset_ = 0;
+    HintBar::instance().show("TAP:Next  HOLD:Select");
 }
 
 void MenuScreen::onExit() {
@@ -272,6 +511,10 @@ void MenuScreen::update() {
     } else if (selected >= scrollOffset_ + layout.visibleItems) {
         scrollOffset_ = selected - layout.visibleItems + 1;
     }
+    
+    // Reset hint bar auto-hide on menu navigation
+    HintBar::instance().resetAutoHide();
+    HintBar::instance().update();
 }
 
 void MenuScreen::render() {
@@ -297,18 +540,8 @@ void MenuScreen::renderTitle() {
     auto& theme = UiTheme::instance();
     auto& statusBar = theme.getStatusBar();
     
-    // ===== Status Bar =====
-    // Left: Current mode
-    display.drawText(2, 1, "MENU", Fonts::SMALL);
-    
-    // Right: Fake battery icon + clock
-    // Battery: simple representation [###]
-    display.drawText(Display::WIDTH - 45, 1, "[###]", Fonts::SMALL);
-    // Fake clock
-    display.drawText(Display::WIDTH - 22, 1, "12:00", Fonts::SMALL);
-    
-    // Status bar separator line
-    display.drawLine(0, statusBar.height, Display::WIDTH, statusBar.height);
+    // ===== Status Bar (using shared renderer) =====
+    StatusBarRenderer::render("MENU");
     
     // ===== Menu Title =====
     const char* title = menuSystem_->getCurrentMenuTitle();
@@ -350,16 +583,8 @@ void MenuScreen::renderItems() {
 }
 
 void MenuScreen::renderHints() {
-    auto& display = MockDisplay::instance();
-    auto& theme = UiTheme::instance();
-    auto& hintBar = theme.getHintBar();
-    
-    // Hint bar separator line
-    display.drawLine(0, hintBar.y - 1, Display::WIDTH, hintBar.y - 1);
-    
-    // Single-button navigation hints:
-    // Short press = Next item, Long press (1s) = Select, Hold (2s) = Back to idle
-    display.drawText(2, hintBar.y + 1, "TAP:Next  HOLD:Select", Fonts::SMALL);
+    // Use shared HintBar with auto-hide
+    HintBar::instance().render();
 }
 
 void MenuScreen::renderScrollbar() {
@@ -394,6 +619,8 @@ void PreviewScreen::onEnter() {
     Serial.println("[PreviewScreen] Enter");
     frameCount_ = 0;
     fps_ = 0.0f;
+    lastHintTime_ = millis();
+    HintBar::instance().show("TAP: Capture  HOLD: Menu");
 }
 
 void PreviewScreen::onExit() {
@@ -402,6 +629,7 @@ void PreviewScreen::onExit() {
 
 void PreviewScreen::update() {
     frameCount_++;
+    HintBar::instance().update();
 }
 
 void PreviewScreen::render() {
@@ -410,38 +638,58 @@ void PreviewScreen::render() {
     
     display.clear();
     
-    // Preview area placeholder
-    display.drawRect(0, 0, Display::WIDTH, Display::HEIGHT - 10, false);
+    // Status bar at top
+    renderStatusBar();
     
-    const char* msg = "[PREVIEW]";
-    uint8_t x = theme.centerTextX(msg, Fonts::SMALL, Display::WIDTH);
-    display.drawText(x, 28, msg, Fonts::SMALL);
+    // Preview area (below status bar)
+    renderPreviewArea();
     
-    // FPS counter
-    char fpsText[16];
-    snprintf(fpsText, sizeof(fpsText), "%.1f FPS", fps_);
-    display.drawText(2, Display::HEIGHT - 9, fpsText, Fonts::SMALL);
-    
-    // Hint
-    display.drawText(70, Display::HEIGHT - 9, "[SEL] Capture", Fonts::SMALL);
+    // Hint bar at bottom (auto-hides)
+    HintBar::instance().render();
     
     display.display();
 }
 
+void PreviewScreen::renderStatusBar() {
+    StatusBarRenderer::render("PREVIEW", fps_);
+}
+
+void PreviewScreen::renderPreviewArea() {
+    auto& display = MockDisplay::instance();
+    auto& theme = UiTheme::instance();
+    auto& statusBar = theme.getStatusBar();
+    
+    // Preview area (below status bar, above hint bar)
+    uint8_t previewY = statusBar.height + 2;
+    uint8_t previewHeight = Display::HEIGHT - previewY - 12;
+    
+    display.drawRect(2, previewY, Display::WIDTH - 4, previewHeight, false);
+    
+    const char* msg = "[LIVE]";
+    uint8_t x = theme.centerTextX(msg, Fonts::SMALL, Display::WIDTH);
+    display.drawText(x, previewY + previewHeight / 2 - 4, msg, Fonts::SMALL);
+}
+
 // ============================================================================
-// CaptureScreen Implementation (with mini preview confirmation)
+// CaptureScreen Implementation (with shutter animation and mini preview)
 // ============================================================================
 
 CaptureScreen::CaptureScreen()
     : enterTime_(0)
     , captureComplete_(false)
+    , shutterFrame_(0)
+    , lastFrameTime_(0)
+    , shutterDone_(false)
 {
 }
 
 void CaptureScreen::onEnter() {
-    Serial.println("[CaptureScreen] Enter - showing capture confirmation");
+    Serial.println("[CaptureScreen] Enter - starting shutter animation");
     enterTime_ = millis();
     captureComplete_ = false;
+    shutterFrame_ = 0;
+    lastFrameTime_ = millis();
+    shutterDone_ = false;
 }
 
 void CaptureScreen::onExit() {
@@ -449,6 +697,18 @@ void CaptureScreen::onExit() {
 }
 
 void CaptureScreen::update() {
+    // Update shutter animation
+    if (!shutterDone_) {
+        uint32_t now = millis();
+        if (now - lastFrameTime_ >= ShutterAnim::FRAME_DURATION) {
+            lastFrameTime_ = now;
+            shutterFrame_++;
+            if (shutterFrame_ >= ShutterAnim::FRAME_COUNT) {
+                shutterDone_ = true;
+            }
+        }
+    }
+    
     // Mark complete after pipeline has finished
     const auto& stats = features::capture::getLastStats();
     if (stats.totalTimeMs > 0 && !captureComplete_) {
@@ -459,15 +719,18 @@ void CaptureScreen::update() {
 void CaptureScreen::render() {
     auto& display = MockDisplay::instance();
     auto& theme = UiTheme::instance();
-    auto& statusBar = theme.getStatusBar();
     
     display.clear();
     
-    // ===== Status Bar =====
-    display.drawText(2, 1, "CAPTURE", Fonts::SMALL);
-    display.drawText(Display::WIDTH - 45, 1, "[###]", Fonts::SMALL);
-    display.drawText(Display::WIDTH - 22, 1, "12:00", Fonts::SMALL);
-    display.drawLine(0, statusBar.height, Display::WIDTH, statusBar.height);
+    // Show shutter animation first if not done
+    if (!shutterDone_) {
+        renderShutterAnimation();
+        display.display();
+        return;
+    }
+    
+    // Status bar
+    StatusBarRenderer::render("CAPTURE");
     
     if (captureComplete_) {
         // Show confirmation with mini preview
@@ -478,12 +741,12 @@ void CaptureScreen::render() {
         display.drawLine(0, theme.getHintBar().y - 1, Display::WIDTH, theme.getHintBar().y - 1);
         display.drawText(2, theme.getHintBar().y + 1, "Saved! TAP: Continue", Fonts::SMALL);
     } else {
-        // Capture in progress
-        const char* msg = "Capturing...";
+        // Capture in progress (after shutter)
+        const char* msg = "Processing...";
         uint8_t x = theme.centerTextX(msg, Fonts::MEDIUM, Display::WIDTH);
         display.drawText(x, 30, msg, Fonts::MEDIUM);
         
-        // Progress indicator (simple)
+        // Progress indicator (simple dots)
         uint32_t elapsed = millis() - enterTime_;
         uint8_t dots = (elapsed / 200) % 4;
         char progress[8] = "    ";
@@ -492,6 +755,24 @@ void CaptureScreen::render() {
     }
     
     display.display();
+}
+
+void CaptureScreen::renderShutterAnimation() {
+    auto& display = MockDisplay::instance();
+    
+    // Calculate shutter progress (0-255)
+    uint8_t progress = (shutterFrame_ * 255) / ShutterAnim::FRAME_COUNT;
+    
+    // Draw shutter effect using mock display
+    display.drawShutter(progress);
+    
+    // Center text during shutter
+    if (shutterFrame_ < ShutterAnim::FRAME_COUNT / 2) {
+        const char* msg = "CLICK!";
+        auto& theme = UiTheme::instance();
+        uint8_t x = theme.centerTextX(msg, Fonts::MEDIUM, Display::WIDTH);
+        display.drawText(x, 28, msg, Fonts::MEDIUM);
+    }
 }
 
 void CaptureScreen::renderMiniPreview() {
@@ -543,12 +824,16 @@ void CaptureScreen::renderStats() {
 }
 
 // ============================================================================
-// ScreenManager Implementation
+// ScreenManager Implementation (with fade transitions)
 // ============================================================================
 
 ScreenManager::ScreenManager()
     : currentScreen_(nullptr)
     , nextScreen_(nullptr)
+    , transitionState_()
+    , transitionDuration_(Timing::FADE_DURATION)
+    , fadeLevel_(255)
+    , pendingTransition_(TransitionType::NONE)
 {
     for (size_t i = 0; i < static_cast<size_t>(ScreenId::SCREEN_COUNT); i++) {
         screens_[i] = nullptr;
@@ -556,7 +841,7 @@ ScreenManager::ScreenManager()
 }
 
 void ScreenManager::init() {
-    Serial.println("[ScreenManager] Initialized");
+    Serial.println("[ScreenManager] Initialized with transition support");
 }
 
 void ScreenManager::registerScreen(IScreen* screen) {
@@ -569,7 +854,7 @@ void ScreenManager::registerScreen(IScreen* screen) {
     }
 }
 
-void ScreenManager::setScreen(ScreenId id) {
+void ScreenManager::setScreen(ScreenId id, TransitionType transition) {
     size_t idx = static_cast<size_t>(id);
     if (idx >= static_cast<size_t>(ScreenId::SCREEN_COUNT)) return;
     
@@ -577,11 +862,26 @@ void ScreenManager::setScreen(ScreenId id) {
     if (!newScreen || newScreen == currentScreen_) return;
     
     nextScreen_ = newScreen;
+    pendingTransition_ = transition;
+    
+    if (transition != TransitionType::NONE) {
+        transitionState_.start(transition, transitionDuration_);
+        Serial.printf("[ScreenManager] Starting transition type %d\n", static_cast<int>(transition));
+    }
 }
 
 void ScreenManager::update() {
-    // Handle screen transition
-    if (nextScreen_ && nextScreen_ != currentScreen_) {
+    // Handle transition animation
+    if (transitionState_.active) {
+        updateTransition();
+    }
+    
+    // Handle screen switch when transition halfway done or no transition
+    bool shouldSwitch = nextScreen_ && nextScreen_ != currentScreen_;
+    bool transitionMidpoint = transitionState_.active && transitionState_.progress >= 128;
+    bool noTransition = !transitionState_.active;
+    
+    if (shouldSwitch && (transitionMidpoint || noTransition)) {
         if (currentScreen_) {
             currentScreen_->onExit();
         }
@@ -595,9 +895,62 @@ void ScreenManager::update() {
     }
 }
 
+void ScreenManager::updateTransition() {
+    uint32_t elapsed = millis() - transitionState_.startTime;
+    
+    if (elapsed >= transitionState_.duration) {
+        // Transition complete
+        transitionState_.stop();
+        fadeLevel_ = 255;  // Fully visible
+        Serial.println("[ScreenManager] Transition complete");
+    } else {
+        // Calculate progress (0-255)
+        transitionState_.progress = (elapsed * 255) / transitionState_.duration;
+        
+        // Fade out then fade in (V-shape curve)
+        if (transitionState_.progress < 128) {
+            // Fade out: 255 -> 0
+            fadeLevel_ = 255 - (transitionState_.progress * 2);
+        } else {
+            // Fade in: 0 -> 255
+            fadeLevel_ = (transitionState_.progress - 128) * 2;
+        }
+    }
+}
+
 void ScreenManager::render() {
     if (currentScreen_) {
         currentScreen_->render();
+    }
+    
+    // Apply transition overlay if active
+    if (transitionState_.active) {
+        renderTransition();
+    }
+}
+
+void ScreenManager::renderTransition() {
+    auto& display = MockDisplay::instance();
+    
+    switch (transitionState_.type) {
+        case TransitionType::FADE:
+            // Fade effect using current fade level
+            display.setFadeLevel(fadeLevel_);
+            break;
+            
+        case TransitionType::SHUTTER:
+            // Shutter effect
+            display.drawShutter(transitionState_.progress);
+            break;
+            
+        case TransitionType::SLIDE_LEFT:
+        case TransitionType::SLIDE_UP:
+            // TODO: Implement slide transitions
+            display.setFadeLevel(fadeLevel_);
+            break;
+            
+        default:
+            break;
     }
 }
 

@@ -93,17 +93,62 @@ public:
     void setCursor(uint8_t x, uint8_t y);
     void print(const char* text);
     void display();  // Commit buffer to "screen"
+    
+    // Animation support
+    void setFadeLevel(uint8_t level);  ///< 0=black, 255=full brightness
+    uint8_t getFadeLevel() const { return fadeLevel_; }
+    void drawShutter(uint8_t closePercent);  ///< Draw shutter overlay
 
     // Status tracking
     bool isDirty() const { return dirty_; }
     void setDirty(bool dirty) { dirty_ = dirty; }
 
 private:
-    MockDisplay() : dirty_(false), textSize_(1), cursorX_(0), cursorY_(0) {}
+    MockDisplay() : dirty_(false), textSize_(1), cursorX_(0), cursorY_(0), fadeLevel_(255) {}
     bool dirty_;
     uint8_t textSize_;
     uint8_t cursorX_;
     uint8_t cursorY_;
+    uint8_t fadeLevel_;
+};
+
+/**
+ * @brief Common status bar renderer (shared across screens)
+ */
+class StatusBarRenderer {
+public:
+    static void render(const char* modeText, float fps = 0.0f);
+    static void renderBattery(uint8_t x, uint8_t y);
+    static void renderClock(uint8_t x, uint8_t y);
+    static void renderFps(uint8_t x, uint8_t y, float fps);
+};
+
+/**
+ * @brief Hint bar with auto-hide support
+ */
+class HintBar {
+public:
+    static HintBar& instance() {
+        static HintBar bar;
+        return bar;
+    }
+    
+    void show(const char* hint);
+    void hide();
+    void update();
+    void render();
+    
+    void resetAutoHide();
+    bool isVisible() const { return visible_ && !fadeOut_; }
+    
+private:
+    HintBar() : hint_(nullptr), visible_(false), lastActivityTime_(0), fadeOut_(false), fadeProgress_(0) {}
+    
+    const char* hint_;
+    bool visible_;
+    uint32_t lastActivityTime_;
+    bool fadeOut_;
+    uint8_t fadeProgress_;
 };
 
 /**
@@ -122,8 +167,12 @@ public:
     bool isComplete() const { return complete_; }
 
 private:
+    void renderFadeEffect();
+    void renderLoadingBar();
+    
     uint32_t startTime_;
     bool complete_;
+    uint8_t fadePhase_;  ///< 0=fade in, 1=display, 2=fade out
 };
 
 /**
@@ -185,12 +234,16 @@ public:
     void setFps(float fps) { fps_ = fps; }
 
 private:
+    void renderStatusBar();
+    void renderPreviewArea();
+    
     float fps_;
     uint32_t frameCount_;
+    uint32_t lastHintTime_;
 };
 
 /**
- * @brief Capture screen implementation (with mini preview confirmation)
+ * @brief Capture screen implementation (with shutter animation and mini preview)
  */
 class CaptureScreen : public IScreen {
 public:
@@ -203,17 +256,22 @@ public:
     ScreenId getId() const override { return ScreenId::CAPTURE; }
 
 private:
+    void renderShutterAnimation();
     void renderMiniPreview();
     void renderStats();
+    void renderConfirmation();
     
     uint32_t enterTime_;
     bool captureComplete_;
+    uint8_t shutterFrame_;      ///< Current shutter animation frame
+    uint32_t lastFrameTime_;    ///< For animation timing
+    bool shutterDone_;          ///< Shutter animation complete
 };
 
 /**
  * @brief Screen Manager
  * 
- * Manages screen transitions and rendering.
+ * Manages screen transitions and rendering with fade effects.
  */
 class ScreenManager {
 public:
@@ -226,18 +284,31 @@ public:
     void update();
     void render();
 
-    void setScreen(ScreenId id);
+    void setScreen(ScreenId id, TransitionType transition = TransitionType::FADE);
     void registerScreen(IScreen* screen);
     
     IScreen* getCurrentScreen() { return currentScreen_; }
     ScreenId getCurrentScreenId() const;
+    
+    // Transition control
+    bool isTransitioning() const { return transitionState_.active; }
+    void setTransitionDuration(uint16_t ms) { transitionDuration_ = ms; }
 
 private:
     ScreenManager();
+    
+    void updateTransition();
+    void renderTransition();
 
     IScreen* screens_[static_cast<size_t>(ScreenId::SCREEN_COUNT)];
     IScreen* currentScreen_;
     IScreen* nextScreen_;
+    
+    // Transition state
+    AnimationState transitionState_;
+    uint16_t transitionDuration_;
+    uint8_t fadeLevel_;             ///< Current fade level for transitions
+    TransitionType pendingTransition_;
 };
 
 } // namespace ui

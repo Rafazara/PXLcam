@@ -364,6 +364,44 @@ private:
     std::vector<int> menuStack_;
 };
 
+// --- PxlcamSettings Mock (v1.2.0) ---
+enum class StyleMode : uint8_t {
+    NORMAL = 0, GAMEBOY = 1, NIGHT = 2, STYLE_COUNT
+};
+
+struct PxlcamSettings {
+    StyleMode styleMode;
+    bool nightMode;
+    bool autoExposure;
+
+    static PxlcamSettings defaults() {
+        return {StyleMode::NORMAL, false, true};
+    }
+
+    size_t serialize(uint8_t* buf, size_t maxLen) const {
+        if (maxLen < 3) return 0;
+        buf[0] = static_cast<uint8_t>(styleMode);
+        buf[1] = nightMode ? 1 : 0;
+        buf[2] = autoExposure ? 1 : 0;
+        return 3;
+    }
+
+    static PxlcamSettings deserialize(const uint8_t* buf, size_t len) {
+        if (len < 3) return defaults();
+        return {
+            static_cast<StyleMode>(buf[0]),
+            buf[1] != 0,
+            buf[2] != 0
+        };
+    }
+
+    bool operator==(const PxlcamSettings& other) const {
+        return styleMode == other.styleMode &&
+               nightMode == other.nightMode &&
+               autoExposure == other.autoExposure;
+    }
+};
+
 // --- Dithering Mock ---
 enum class DitherMode : uint8_t {
     Threshold = 0, GameBoy = 1, FloydSteinberg = 2, Night = 3
@@ -710,6 +748,95 @@ void test_settings_exposure_range(void) {
 }
 
 // ============================================================================
+// PXLCAM SETTINGS (v1.2.0) TESTS
+// ============================================================================
+
+void test_pxlcam_settings_defaults(void) {
+    mock::PxlcamSettings s = mock::PxlcamSettings::defaults();
+
+    TEST_ASSERT_EQUAL(mock::StyleMode::NORMAL, s.styleMode);
+    TEST_ASSERT_FALSE(s.nightMode);
+    TEST_ASSERT_TRUE(s.autoExposure);
+}
+
+void test_pxlcam_settings_serialize_deserialize(void) {
+    mock::PxlcamSettings original = {
+        mock::StyleMode::GAMEBOY,
+        true,
+        false
+    };
+
+    uint8_t buffer[8];
+    size_t written = original.serialize(buffer, sizeof(buffer));
+    TEST_ASSERT_EQUAL(3, written);
+
+    mock::PxlcamSettings restored = mock::PxlcamSettings::deserialize(buffer, written);
+
+    TEST_ASSERT_TRUE(original == restored);
+    TEST_ASSERT_EQUAL(mock::StyleMode::GAMEBOY, restored.styleMode);
+    TEST_ASSERT_TRUE(restored.nightMode);
+    TEST_ASSERT_FALSE(restored.autoExposure);
+}
+
+void test_pxlcam_settings_serialize_insufficient_buffer(void) {
+    mock::PxlcamSettings s = mock::PxlcamSettings::defaults();
+    uint8_t buffer[2];  // Too small
+    size_t written = s.serialize(buffer, sizeof(buffer));
+    TEST_ASSERT_EQUAL(0, written);
+}
+
+void test_pxlcam_settings_deserialize_insufficient_data(void) {
+    uint8_t buffer[1] = {1};
+    mock::PxlcamSettings s = mock::PxlcamSettings::deserialize(buffer, 1);
+    
+    // Should return defaults on insufficient data
+    mock::PxlcamSettings defaults = mock::PxlcamSettings::defaults();
+    TEST_ASSERT_TRUE(s == defaults);
+}
+
+void test_pxlcam_settings_all_style_modes(void) {
+    for (int i = 0; i < static_cast<int>(mock::StyleMode::STYLE_COUNT); i++) {
+        mock::PxlcamSettings s = mock::PxlcamSettings::defaults();
+        s.styleMode = static_cast<mock::StyleMode>(i);
+        
+        uint8_t buf[8];
+        size_t len = s.serialize(buf, sizeof(buf));
+        mock::PxlcamSettings r = mock::PxlcamSettings::deserialize(buf, len);
+        
+        TEST_ASSERT_EQUAL(s.styleMode, r.styleMode);
+    }
+}
+
+void test_pxlcam_settings_bool_combinations(void) {
+    // Test all combinations of nightMode and autoExposure
+    bool bools[] = {false, true};
+    
+    for (bool nightMode : bools) {
+        for (bool autoExposure : bools) {
+            mock::PxlcamSettings s = {mock::StyleMode::NORMAL, nightMode, autoExposure};
+            
+            uint8_t buf[8];
+            size_t len = s.serialize(buf, sizeof(buf));
+            mock::PxlcamSettings r = mock::PxlcamSettings::deserialize(buf, len);
+            
+            TEST_ASSERT_EQUAL(nightMode, r.nightMode);
+            TEST_ASSERT_EQUAL(autoExposure, r.autoExposure);
+        }
+    }
+}
+
+void test_pxlcam_settings_night_mode_style(void) {
+    mock::PxlcamSettings s = {mock::StyleMode::NIGHT, true, false};
+    
+    uint8_t buf[8];
+    s.serialize(buf, sizeof(buf));
+    mock::PxlcamSettings r = mock::PxlcamSettings::deserialize(buf, 3);
+    
+    TEST_ASSERT_EQUAL(mock::StyleMode::NIGHT, r.styleMode);
+    TEST_ASSERT_TRUE(r.nightMode);
+}
+
+// ============================================================================
 // MENU NAVIGATION TESTS
 // ============================================================================
 
@@ -979,6 +1106,15 @@ void runTests() {
     RUN_TEST(test_settings_all_modes_valid);
     RUN_TEST(test_settings_all_palettes_valid);
     RUN_TEST(test_settings_exposure_range);
+
+    // PxlcamSettings (v1.2.0) Tests
+    RUN_TEST(test_pxlcam_settings_defaults);
+    RUN_TEST(test_pxlcam_settings_serialize_deserialize);
+    RUN_TEST(test_pxlcam_settings_serialize_insufficient_buffer);
+    RUN_TEST(test_pxlcam_settings_deserialize_insufficient_data);
+    RUN_TEST(test_pxlcam_settings_all_style_modes);
+    RUN_TEST(test_pxlcam_settings_bool_combinations);
+    RUN_TEST(test_pxlcam_settings_night_mode_style);
 
     // Menu Navigation Tests
     RUN_TEST(test_menu_initial_state);

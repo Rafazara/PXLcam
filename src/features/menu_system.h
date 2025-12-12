@@ -112,10 +112,13 @@ public:
     static constexpr int MAIN_MENU_ID = 0;
     
     /// Capture settings submenu ID
-    static constexpr int SETTINGS_MENU_ID = 1;
+    static constexpr int CAPTURE_SETTINGS_ID = 1;
+    
+    /// Display settings submenu ID
+    static constexpr int DISPLAY_SETTINGS_ID = 2;
     
     /// About submenu ID
-    static constexpr int ABOUT_MENU_ID = 2;
+    static constexpr int ABOUT_MENU_ID = 3;
 
     /**
      * @brief Constructor
@@ -149,6 +152,12 @@ public:
      * @brief Close menu system
      */
     void close();
+
+    /**
+     * @brief Navigate to next item (wraps around)
+     * For single-button navigation: short press = next
+     */
+    void navigateNext();
 
     /**
      * @brief Navigate up in current menu

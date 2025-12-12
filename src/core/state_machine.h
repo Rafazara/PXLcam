@@ -41,9 +41,11 @@ enum class State : uint8_t {
 enum class Event : uint8_t {
     NONE = 0,           ///< No event
     BOOT_COMPLETE,      ///< Boot sequence finished
-    BUTTON_PRESS,       ///< Single button press
-    BUTTON_LONG_PRESS,  ///< Long button press
+    BUTTON_PRESS,       ///< Single button press (short)
+    BUTTON_LONG_PRESS,  ///< Long button press (1s)
+    BUTTON_HOLD,        ///< Button hold (2s) - return to idle
     BUTTON_DOUBLE_PRESS,///< Double button press
+    MENU_NAV,           ///< Menu navigation (next item)
     MENU_SELECT,        ///< Menu item selected
     MENU_BACK,          ///< Menu back navigation
     CAPTURE_COMPLETE,   ///< Capture finished

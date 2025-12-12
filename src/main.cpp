@@ -116,7 +116,10 @@ void setupStateMachine() {
         }
     });
     
-    // MENU State
+    // MENU State - Single-button navigation:
+    // - Short press (MENU_NAV): next item (wraps around)
+    // - Long press 1s (MENU_SELECT): select item
+    // - Hold 2s (BUTTON_HOLD): return to idle
     stateMachine.registerState(State::MENU, {
         .onEnter = []() {
             Serial.println("[State] MENU: Opened");
@@ -131,11 +134,9 @@ void setupStateMachine() {
         },
         .onEvent = [](Event e) -> State {
             switch (e) {
-                case Event::BUTTON_PRESS:
-                    menuSystem.navigateDown();
-                    return State::MENU;
-                case Event::BUTTON_DOUBLE_PRESS:
-                    menuSystem.navigateUp();
+                case Event::MENU_NAV:
+                    // Single-button: short press = next item
+                    menuSystem.navigateNext();
                     return State::MENU;
                 case Event::MENU_SELECT: {
                     auto result = menuSystem.select();
@@ -147,6 +148,12 @@ void setupStateMachine() {
                     if (item && strcmp(item->label, "Preview Mode") == 0) {
                         return State::PREVIEW;
                     }
+                    // Check for "Reset Settings" action
+                    if (item && strcmp(item->label, "Reset Settings") == 0) {
+                        pxlcam::features::settings::loadDefaultValues(pxlcam::core::AppContext::instance());
+                        pxlcam::features::settings::save(pxlcam::core::AppContext::instance());
+                        Serial.println("[State] Settings reset to defaults");
+                    }
                     return State::MENU;
                 }
                 case Event::MENU_BACK: {
@@ -156,7 +163,9 @@ void setupStateMachine() {
                     }
                     return State::MENU;
                 }
-                case Event::BUTTON_LONG_PRESS:
+                case Event::BUTTON_HOLD:
+                    // Single-button: 2s hold = return to idle
+                    Serial.println("[State] MENU: Hold detected - returning to IDLE");
                     return State::IDLE;
                 default:
                     return State::MENU;
@@ -310,14 +319,36 @@ void loop() {
         mockButton.update();
         
         // Check for button events and convert to state machine events
+        // Single-button navigation mapping:
+        // - PRESS (short): In MENU -> MENU_NAV, In IDLE -> BUTTON_PRESS
+        // - LONG_PRESS (1s): MENU_SELECT (select item)
+        // - HOLD (2s): BUTTON_HOLD (return to idle from any state)
         auto buttonEvent = mockButton.getEvent(pxlcam::hal::ButtonId::SHUTTER);
         if (buttonEvent != pxlcam::hal::ButtonEvent::NONE) {
+            auto currentState = stateMachine.getCurrentState();
+            
             switch (buttonEvent) {
                 case pxlcam::hal::ButtonEvent::PRESS:
-                    stateMachine.handleEvent(pxlcam::core::Event::BUTTON_PRESS);
+                    if (currentState == pxlcam::core::State::MENU) {
+                        // Short press in MENU = navigate to next item
+                        stateMachine.handleEvent(pxlcam::core::Event::MENU_NAV);
+                    } else {
+                        // Short press elsewhere = general button press
+                        stateMachine.handleEvent(pxlcam::core::Event::BUTTON_PRESS);
+                    }
                     break;
                 case pxlcam::hal::ButtonEvent::LONG_PRESS:
-                    stateMachine.handleEvent(pxlcam::core::Event::BUTTON_LONG_PRESS);
+                    if (currentState == pxlcam::core::State::MENU) {
+                        // Long press (1s) in MENU = select item
+                        stateMachine.handleEvent(pxlcam::core::Event::MENU_SELECT);
+                    } else {
+                        // Long press elsewhere = enter preview/other actions
+                        stateMachine.handleEvent(pxlcam::core::Event::BUTTON_LONG_PRESS);
+                    }
+                    break;
+                case pxlcam::hal::ButtonEvent::HOLD:
+                    // 2s hold = return to idle (from any state)
+                    stateMachine.handleEvent(pxlcam::core::Event::BUTTON_HOLD);
                     break;
                 case pxlcam::hal::ButtonEvent::DOUBLE_PRESS:
                     stateMachine.handleEvent(pxlcam::core::Event::BUTTON_DOUBLE_PRESS);

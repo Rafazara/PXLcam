@@ -30,7 +30,9 @@ const char* eventToString(Event event) {
         case Event::BOOT_COMPLETE:      return "BOOT_COMPLETE";
         case Event::BUTTON_PRESS:       return "BUTTON_PRESS";
         case Event::BUTTON_LONG_PRESS:  return "BUTTON_LONG_PRESS";
+        case Event::BUTTON_HOLD:        return "BUTTON_HOLD";
         case Event::BUTTON_DOUBLE_PRESS:return "BUTTON_DOUBLE_PRESS";
+        case Event::MENU_NAV:           return "MENU_NAV";
         case Event::MENU_SELECT:        return "MENU_SELECT";
         case Event::MENU_BACK:          return "MENU_BACK";
         case Event::CAPTURE_COMPLETE:   return "CAPTURE_COMPLETE";

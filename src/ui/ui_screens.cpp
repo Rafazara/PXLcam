@@ -208,12 +208,18 @@ void IdleScreen::update() {
 void IdleScreen::render() {
     auto& display = MockDisplay::instance();
     auto& theme = UiTheme::instance();
+    auto& statusBar = theme.getStatusBar();
     
     display.clear();
     
-    // Status bar
-    display.drawLine(0, theme.getStatusBar().height, Display::WIDTH, theme.getStatusBar().height);
+    // ===== Status Bar =====
+    // Left: Current mode
     display.drawText(2, 1, "IDLE", Fonts::SMALL);
+    // Right: Fake battery icon + clock
+    display.drawText(Display::WIDTH - 45, 1, "[###]", Fonts::SMALL);
+    display.drawText(Display::WIDTH - 22, 1, "12:00", Fonts::SMALL);
+    // Status bar separator line
+    display.drawLine(0, statusBar.height, Display::WIDTH, statusBar.height);
     
     // Center content
     const char* msg = "Press button";
@@ -226,7 +232,7 @@ void IdleScreen::render() {
     
     // Hint bar
     display.drawLine(0, theme.getHintBar().y - 1, Display::WIDTH, theme.getHintBar().y - 1);
-    display.drawText(2, theme.getHintBar().y + 1, "[SEL] Menu", Fonts::SMALL);
+    display.drawText(2, theme.getHintBar().y + 1, "TAP: Menu", Fonts::SMALL);
     
     display.display();
 }
@@ -289,10 +295,28 @@ void MenuScreen::render() {
 void MenuScreen::renderTitle() {
     auto& display = MockDisplay::instance();
     auto& theme = UiTheme::instance();
+    auto& statusBar = theme.getStatusBar();
     
+    // ===== Status Bar =====
+    // Left: Current mode
+    display.drawText(2, 1, "MENU", Fonts::SMALL);
+    
+    // Right: Fake battery icon + clock
+    // Battery: simple representation [###]
+    display.drawText(Display::WIDTH - 45, 1, "[###]", Fonts::SMALL);
+    // Fake clock
+    display.drawText(Display::WIDTH - 22, 1, "12:00", Fonts::SMALL);
+    
+    // Status bar separator line
+    display.drawLine(0, statusBar.height, Display::WIDTH, statusBar.height);
+    
+    // ===== Menu Title =====
     const char* title = menuSystem_->getCurrentMenuTitle();
-    display.drawText(2, 1, title, Fonts::SMALL);
-    display.drawLine(0, theme.getStatusBar().height, Display::WIDTH, theme.getStatusBar().height);
+    uint8_t titleX = theme.centerTextX(title, Fonts::SMALL, Display::WIDTH);
+    display.drawText(titleX, statusBar.height + 2, title, Fonts::SMALL);
+    
+    // Title underline
+    display.drawLine(0, statusBar.height + 11, Display::WIDTH, statusBar.height + 11);
 }
 
 void MenuScreen::renderItems() {
@@ -330,8 +354,12 @@ void MenuScreen::renderHints() {
     auto& theme = UiTheme::instance();
     auto& hintBar = theme.getHintBar();
     
+    // Hint bar separator line
     display.drawLine(0, hintBar.y - 1, Display::WIDTH, hintBar.y - 1);
-    display.drawText(2, hintBar.y + 1, "[UP/DN] Nav  [SEL] OK", Fonts::SMALL);
+    
+    // Single-button navigation hints:
+    // Short press = Next item, Long press (1s) = Select, Hold (2s) = Back to idle
+    display.drawText(2, hintBar.y + 1, "TAP:Next  HOLD:Select", Fonts::SMALL);
 }
 
 void MenuScreen::renderScrollbar() {

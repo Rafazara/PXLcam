@@ -33,7 +33,7 @@ void MenuSystem::init() {
 }
 
 void MenuSystem::createDefaultMenus() {
-    // Main Menu (ID: 0)
+    // Main Menu (ID: 0) - 5 required items
     MenuDef mainMenu;
     mainMenu.id = MAIN_MENU_ID;
     mainMenu.title = "PXLcam Menu";
@@ -46,24 +46,34 @@ void MenuSystem::createDefaultMenus() {
         MenuItem::createSubmenu(
             "Capture Settings",
             "Configure capture options",
-            SETTINGS_MENU_ID
+            CAPTURE_SETTINGS_ID
         ),
         MenuItem::createSubmenu(
-            "About PXLcam",
+            "Display Settings",
+            "Adjust display options",
+            DISPLAY_SETTINGS_ID
+        ),
+        MenuItem::createSubmenu(
+            "About",
             "Device information",
             ABOUT_MENU_ID
+        ),
+        MenuItem::createAction(
+            "Reset Settings",
+            "Restore factory defaults",
+            []() { Serial.println("[Menu] Reset Settings selected"); }
         )
     };
     addMenu(mainMenu);
 
-    // Settings Submenu (ID: 1)
-    MenuDef settingsMenu;
-    settingsMenu.id = SETTINGS_MENU_ID;
-    settingsMenu.title = "Capture Settings";
-    settingsMenu.items = {
+    // Capture Settings Submenu (ID: 1)
+    MenuDef captureMenu;
+    captureMenu.id = CAPTURE_SETTINGS_ID;
+    captureMenu.title = "Capture Settings";
+    captureMenu.items = {
         MenuItem::createAction(
             "Exposure",
-            "Adjust exposure settings",
+            "Adjust exposure level",
             []() { Serial.println("[Menu] Exposure settings"); }
         ),
         MenuItem::createAction(
@@ -76,11 +86,40 @@ void MenuSystem::createDefaultMenus() {
             "Set capture resolution",
             []() { Serial.println("[Menu] Resolution settings"); }
         ),
+        MenuItem::createAction(
+            "Capture Style",
+            "Select effect style",
+            []() { Serial.println("[Menu] Capture style settings"); }
+        ),
         MenuItem::createBack()
     };
-    addMenu(settingsMenu);
+    addMenu(captureMenu);
 
-    // About Submenu (ID: 2)
+    // Display Settings Submenu (ID: 2)
+    MenuDef displayMenu;
+    displayMenu.id = DISPLAY_SETTINGS_ID;
+    displayMenu.title = "Display Settings";
+    displayMenu.items = {
+        MenuItem::createAction(
+            "Brightness",
+            "Adjust screen brightness",
+            []() { Serial.println("[Menu] Brightness settings"); }
+        ),
+        MenuItem::createAction(
+            "Preview FPS",
+            "Set preview frame rate",
+            []() { Serial.println("[Menu] Preview FPS settings"); }
+        ),
+        MenuItem::createAction(
+            "Status Bar",
+            "Toggle status bar display",
+            []() { Serial.println("[Menu] Status bar toggle"); }
+        ),
+        MenuItem::createBack()
+    };
+    addMenu(displayMenu);
+
+    // About Submenu (ID: 3)
     MenuDef aboutMenu;
     aboutMenu.id = ABOUT_MENU_ID;
     aboutMenu.title = "About PXLcam";
@@ -99,6 +138,13 @@ void MenuSystem::createDefaultMenus() {
             "License: MIT",
             "Open source license",
             []() { Serial.println("[Menu] License info"); }
+        ),
+        MenuItem::createAction(
+            "Free Memory",
+            "Show available RAM",
+            []() { 
+                Serial.printf("[Menu] Free heap: %lu bytes\n", (unsigned long)ESP.getFreeHeap());
+            }
         ),
         MenuItem::createBack()
     };
@@ -209,6 +255,13 @@ void MenuSystem::navigateDown() {
     }
 
     Serial.printf("[MenuSystem] Navigate down: index %d\n", selectedIndex_);
+}
+
+void MenuSystem::navigateNext() {
+    // Alias for navigateDown - used for single-button navigation
+    // Short press cycles to next item (wraps around)
+    navigateDown();
+    Serial.printf("[MenuSystem] Navigate next (single-button mode)\n");
 }
 
 MenuResult MenuSystem::select() {

@@ -5,7 +5,44 @@ All notable changes to PXLcam firmware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.2.0] - 2025-12-11
+## [1.2.0] - 2025-01-XX
+
+### Added
+
+#### Simplified Menu System
+- **3-item main menu**: Style Mode, Settings, About
+- **Style Mode submenu**: Normal, GameBoy, Night mode selection
+- **Single-button navigation**: Short press → next, long press → select, 2s hold → back
+
+#### PxlcamSettings Struct
+- **Simplified persistence**: 3-field struct (`styleMode`, `nightMode`, `autoExposure`)
+- **NVS API**: `loadPxlcamSettings()`, `savePxlcamSettings()`, individual field save functions
+- **Serialize/deserialize**: Efficient 3-byte serialization for storage
+
+#### UX Improvements
+- **Status indicator**: Visual indicator in top-right corner (Ready/Busy/Error/Recording states)
+- **Quick feedback**: `showQuickFeedback()`, `showModeFeedback()`, `showSavedFeedback()`
+- **Auto-clear**: Quick feedback messages auto-clear after configurable timeout
+
+#### Expanded Test Suite
+- **PxlcamSettings tests**: serialize/deserialize roundtrip, boundary conditions
+- **StyleMode validation**: All style modes serialize correctly
+- **Boolean combinations**: All nightMode/autoExposure combinations tested
+
+### Changed
+- **Menu structure**: Reorganized from detailed mode/palette menus to simplified 3-item layout
+- **StyleMode enum**: Added `STYLE_MODE_MENU_ID = 4` for submenu navigation
+- **StatusIndicator enum**: New visual states (None, Ready, Busy, Error, Recording)
+
+### Technical Details
+- **RAM usage**: 8.4% (27KB of 327KB)
+- **Flash usage**: 11.2% (352KB of 3MB)
+- **Build**: Zero warnings, zero errors
+- **Test count**: 7 new PxlcamSettings tests added to test suite
+
+---
+
+## [1.1.0] - 2025-01-XX
 
 ### Added
 
@@ -64,7 +101,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [1.1.0] - 2025-01-XX
+## [1.0.0] - 2025-01-XX
 
 ### Added
 

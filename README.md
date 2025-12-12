@@ -36,6 +36,26 @@ PXLcam is a fully functional digital camera that captures images with a distinct
 
 ## 🆕 v1.2.0 Highlights
 
+### Simplified Menu System
+Easy-to-navigate 3-item menu:
+- **Style Mode**: Select Normal, GameBoy, or Night mode
+- **Settings**: Configure camera options
+- **About**: Device information
+- Navigation: **Tap** → next item, **Hold 1s** → select, **2s hold** → back
+
+### PxlcamSettings Persistence
+Simplified settings structure that persists across power cycles:
+- **styleMode**: Normal/GameBoy/Night capture style
+- **nightMode**: Enable/disable night vision enhancement
+- **autoExposure**: Enable/disable automatic exposure control
+- Automatic NVS storage on change
+
+### UX Improvements
+Enhanced visual feedback:
+- **Status indicator**: Top-right corner (Ready/Busy/Error/Recording)
+- **Quick feedback**: Mode change confirmations
+- **Saved notifications**: Settings persistence confirmation
+
 ### Stylized Capture Pipeline
 Capture photos with authentic retro aesthetics:
 - **GameBoy Mode**: Bayer 8x8 ordered dithering → 4-tone palette (classic DMG colors)
@@ -43,26 +63,12 @@ Capture photos with authentic retro aesthetics:
 - **Normal Mode**: Clean grayscale conversion
 - **Output**: 8-bit grayscale BMP files, ready to view anywhere
 
-### Modal Menu System
-Easy mode selection without interrupting workflow:
-- Beautiful vertical list: `[ GameBoy ]`, `[ Night ]`, `[ Normal ]`
-- Navigation: **Tap** to move, **Hold 1s** to select
-- Fade-in animation for smooth transitions
-- Mode persists across power cycles (NVS storage)
-
-### Professional UX
-Polished user experience:
-- Error screens with auto-dismiss (3 seconds)
-- Success animation (blink effect) after capture
-- Enhanced status bar: Mode (G/N/X), SD, Memory, FPS
-- Toast notifications for feedback
-
 ### Button Controls
 | Action | Duration | Result |
 |--------|----------|--------|
-| **Tap** | < 500ms | Capture photo |
-| **Hold** | 500ms - 2s | Enter preview mode |
-| **Long Hold** | > 2s | Open mode menu |
+| **Tap** | < 500ms | Navigate menu / Capture photo |
+| **Hold** | 500ms - 2s | Select menu item / Enter preview |
+| **Long Hold** | > 2s | Go back / Open menu |
 
 ---
 

@@ -752,8 +752,136 @@ void refreshFullUI(int fps, bool sdPresent, PreviewMode mode, const char* hint) 
     uint16_t freeHeapKb = ESP.getFreeHeap() / 1024;
     
     drawStatusBar(fps, sdPresent, mode, freeHeapKb);
+    drawStatusIndicator();  // v1.2.0: status indicator
     drawPreviewFrame();
     drawHintBar(hint);
+}
+
+//==============================================================================
+// Quick Feedback (v1.2.0)
+//==============================================================================
+
+namespace {
+    bool g_quickFeedbackVisible = false;
+    char g_quickFeedbackMsg[24] = {0};
+    uint32_t g_quickFeedbackExpireMs = 0;
+    StatusIndicator g_statusIndicator = StatusIndicator::Ready;
+}
+
+void showQuickFeedback(const char* message, uint32_t timeoutMs) {
+    if (!message) return;
+    
+    strncpy(g_quickFeedbackMsg, message, sizeof(g_quickFeedbackMsg) - 1);
+    g_quickFeedbackMsg[sizeof(g_quickFeedbackMsg) - 1] = '\0';
+    g_quickFeedbackExpireMs = millis() + timeoutMs;
+    g_quickFeedbackVisible = true;
+    
+    // Draw immediately
+    Adafruit_SSD1306* disp = getDisplayPtr();
+    if (disp) {
+        // Position: top-right, below status bar
+        int len = strlen(g_quickFeedbackMsg);
+        int x = 128 - (len * 6) - 2;
+        int y = UILayout::StatusBarHeight + 2;
+        
+        // Clear area and draw
+        disp->fillRect(x - 2, y - 1, len * 6 + 4, 10, SSD1306_BLACK);
+        disp->drawRect(x - 2, y - 1, len * 6 + 4, 10, SSD1306_WHITE);
+        disp->setTextSize(1);
+        disp->setTextColor(SSD1306_WHITE);
+        disp->setCursor(x, y);
+        disp->print(g_quickFeedbackMsg);
+        disp->display();
+    }
+    
+    PXLCAM_LOGI_TAG("ui", "Feedback: %s", message);
+}
+
+void showModeFeedback(const char* modeName) {
+    char buf[24];
+    snprintf(buf, sizeof(buf), "Style: %s", modeName);
+    showQuickFeedback(buf, 1500);
+}
+
+void showSavedFeedback() {
+    showQuickFeedback("Saved!", 1000);
+}
+
+void clearQuickFeedback() {
+    g_quickFeedbackVisible = false;
+    g_quickFeedbackExpireMs = 0;
+}
+
+//==============================================================================
+// Status Indicator (v1.2.0 - top-right corner)
+//==============================================================================
+
+void setStatusIndicator(StatusIndicator status) {
+    g_statusIndicator = status;
+}
+
+StatusIndicator getStatusIndicator() {
+    return g_statusIndicator;
+}
+
+void drawStatusIndicator() {
+    Adafruit_SSD1306* disp = getDisplayPtr();
+    if (!disp) return;
+    
+    // Position: top-right corner (x=122, y=2)
+    constexpr int kIndicatorX = 122;
+    constexpr int kIndicatorY = 2;
+    constexpr int kIndicatorR = 3;
+    
+    // Clear indicator area
+    disp->fillRect(kIndicatorX - kIndicatorR, kIndicatorY - kIndicatorR, 
+                   kIndicatorR * 2 + 2, kIndicatorR * 2 + 2, SSD1306_BLACK);
+    
+    switch (g_statusIndicator) {
+        case StatusIndicator::Ready:
+            // Filled circle (ready)
+            disp->fillCircle(kIndicatorX, kIndicatorY + 2, kIndicatorR, SSD1306_WHITE);
+            break;
+            
+        case StatusIndicator::Busy:
+            // Half-filled circle (busy)
+            disp->drawCircle(kIndicatorX, kIndicatorY + 2, kIndicatorR, SSD1306_WHITE);
+            disp->fillRect(kIndicatorX - kIndicatorR, kIndicatorY + 2, 
+                          kIndicatorR * 2 + 1, kIndicatorR + 1, SSD1306_WHITE);
+            break;
+            
+        case StatusIndicator::Error:
+            // X mark (error)
+            disp->drawLine(kIndicatorX - 2, kIndicatorY, kIndicatorX + 2, kIndicatorY + 4, SSD1306_WHITE);
+            disp->drawLine(kIndicatorX + 2, kIndicatorY, kIndicatorX - 2, kIndicatorY + 4, SSD1306_WHITE);
+            break;
+            
+        case StatusIndicator::Recording: {
+            // Blinking circle (recording)
+            static bool blinkState = false;
+            static uint32_t lastBlink = 0;
+            if (millis() - lastBlink > 300) {
+                blinkState = !blinkState;
+                lastBlink = millis();
+            }
+            if (blinkState) {
+                disp->fillCircle(kIndicatorX, kIndicatorY + 2, kIndicatorR, SSD1306_WHITE);
+            } else {
+                disp->drawCircle(kIndicatorX, kIndicatorY + 2, kIndicatorR, SSD1306_WHITE);
+            }
+            break;
+        }
+            
+        case StatusIndicator::None:
+        default:
+            // No indicator
+            break;
+    }
+    
+    // Check quick feedback timeout
+    if (g_quickFeedbackVisible && millis() > g_quickFeedbackExpireMs) {
+        clearQuickFeedback();
+    }
 }
 
 }  // namespace pxlcam::display

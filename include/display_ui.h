@@ -176,6 +176,48 @@ void showToast(const char* message, ToastType type = ToastType::Info,
 void clearToast();
 
 //==============================================================================
+// Quick Feedback (v1.2.0)
+//==============================================================================
+
+/// Show quick feedback message (positioned top-right, auto-timeout)
+/// @param message Short feedback message (e.g., "Saved!", "Style: GameBoy")
+/// @param timeoutMs Display duration (default 1500ms)
+void showQuickFeedback(const char* message, uint32_t timeoutMs = 1500);
+
+/// Show mode change feedback
+/// @param modeName Name of new mode
+void showModeFeedback(const char* modeName);
+
+/// Show "Saved!" feedback
+void showSavedFeedback();
+
+/// Clear quick feedback
+void clearQuickFeedback();
+
+//==============================================================================
+// Status Indicator (v1.2.0 - top-right corner)
+//==============================================================================
+
+/// Status indicator types
+enum class StatusIndicator : uint8_t {
+    None = 0,
+    Ready,      ///< Green dot - ready
+    Busy,       ///< Yellow dot - processing
+    Error,      ///< Red dot - error state
+    Recording   ///< Blinking red - capturing
+};
+
+/// Set status indicator (top-right corner)
+/// @param status Status type
+void setStatusIndicator(StatusIndicator status);
+
+/// Get current status indicator
+StatusIndicator getStatusIndicator();
+
+/// Draw status indicator at current state
+void drawStatusIndicator();
+
+//==============================================================================
 // Progress & Loading
 //==============================================================================
 

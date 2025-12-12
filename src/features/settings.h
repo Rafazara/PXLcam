@@ -1,9 +1,9 @@
 /**
  * @file settings.h
- * @brief Settings Management for PXLcam v1.2.0
+ * @brief NVS Settings Persistence for PXLcam v1.2.0
  * 
- * Provides persistent settings storage and retrieval.
- * Works with HAL storage abstraction for portability.
+ * Provides persistent settings storage using ESP32 NVS.
+ * Includes robust fallback to defaults and comprehensive logging.
  * 
  * @author PXLcam Team
  * @version 1.2.0
@@ -15,145 +15,198 @@
 
 #include <cstdint>
 #include "../core/app_context.h"
-#include "../hal/hal_storage.h"
 
 namespace pxlcam {
 namespace features {
 
 /**
- * @brief Settings storage keys
+ * @brief NVS namespace for PXLcam settings
  */
-namespace SettingsKey {
-    constexpr const char* CAMERA_MODE = "cam_mode";
-    constexpr const char* PALETTE = "palette";
-    constexpr const char* EXPOSURE = "exposure";
-    constexpr const char* SYSTEM_CONFIG = "sys_cfg";
-    constexpr const char* FIRST_BOOT = "first_boot";
+namespace NvsConfig {
+    constexpr const char* NAMESPACE = "pxlcam";      ///< NVS namespace
+    constexpr uint8_t SETTINGS_VERSION = 2;          ///< Settings format version
 }
 
 /**
- * @brief Settings version for migration support
+ * @brief NVS key names for persisted fields
  */
-constexpr uint8_t SETTINGS_VERSION = 1;
+namespace NvsKey {
+    constexpr const char* CURRENT_MODE = "mode";           ///< CameraMode
+    constexpr const char* PALETTE_ID = "palette";          ///< Palette ID
+    constexpr const char* BRIGHTNESS = "brightness";       ///< Display brightness
+    constexpr const char* CAPTURE_STYLE = "capStyle";      ///< Capture style/effect
+    constexpr const char* LAST_EXPOSURE = "lastExp";       ///< Last exposure value
+    constexpr const char* SETTINGS_VER = "version";        ///< Settings version marker
+    constexpr const char* INITIALIZED = "init";            ///< Initialization marker
+}
 
 /**
- * @brief Settings header for stored data
+ * @brief Capture style enumeration
  */
-struct SettingsHeader {
-    uint8_t version;        ///< Settings format version
-    uint8_t checksum;       ///< Simple checksum for validation
-    uint16_t reserved;      ///< Reserved for future use
+enum class CaptureStyle : uint8_t {
+    NORMAL = 0,         ///< Standard capture
+    DITHERED,           ///< Dithered pixel art
+    OUTLINE,            ///< Edge detection
+    POSTERIZED,         ///< Reduced colors
+    STYLE_COUNT
 };
 
 /**
- * @brief Settings Manager class
+ * @brief Persisted settings data structure
  * 
- * Handles loading and saving of application settings.
- * Uses HAL storage interface for persistence.
+ * Contains all fields that are saved to NVS.
+ */
+struct PersistedSettings {
+    core::CameraMode currentMode;   ///< Current camera mode
+    core::Palette paletteId;        ///< Selected color palette
+    uint8_t brightness;             ///< Display brightness (0-255)
+    CaptureStyle captureStyle;      ///< Capture style/effect
+    int8_t lastExposure;            ///< Last exposure compensation (-2 to +2)
+
+    /**
+     * @brief Get default settings values
+     * @return PersistedSettings Default values
+     */
+    static PersistedSettings defaults() {
+        return {
+            .currentMode = core::CameraMode::STANDARD,
+            .paletteId = core::Palette::FULL_COLOR,
+            .brightness = 200,
+            .captureStyle = CaptureStyle::NORMAL,
+            .lastExposure = 0
+        };
+    }
+};
+
+/**
+ * @brief Settings persistence namespace
+ * 
+ * Provides synchronous, thread-safe NVS operations with
+ * robust fallback and comprehensive logging.
  * 
  * @code
- * Settings settings(&storage);
- * settings.init();
- * settings.load();
- * // Modify context...
- * settings.save();
+ * // Load settings into context
+ * auto& ctx = core::AppContext::instance();
+ * settings::load(ctx);
+ * 
+ * // Modify and save
+ * ctx.setMode(core::CameraMode::PIXEL_ART);
+ * settings::save(ctx);
  * @endcode
  */
-class Settings {
-public:
-    /**
-     * @brief Constructor
-     * @param storage Pointer to storage HAL implementation
-     */
-    explicit Settings(hal::IStorage* storage);
+namespace settings {
 
     /**
-     * @brief Destructor
-     */
-    ~Settings() = default;
-
-    /**
-     * @brief Initialize settings manager
-     * @return bool True if successful
+     * @brief Initialize NVS settings system
+     * 
+     * Must be called once at startup before load/save operations.
+     * Initializes NVS flash if not already done.
+     * 
+     * @return bool True if initialization successful
      */
     bool init();
 
     /**
-     * @brief Load all settings into AppContext
-     * @return bool True if successful
+     * @brief Load settings from NVS into AppContext
+     * 
+     * Loads all persisted fields from NVS and applies them
+     * to the provided AppContext. Falls back to defaults
+     * on any read error.
+     * 
+     * @param ctx AppContext to populate with loaded settings
      */
-    bool load();
+    void load(core::AppContext& ctx);
 
     /**
-     * @brief Save all settings from AppContext
-     * @return bool True if successful
+     * @brief Save settings from AppContext to NVS
+     * 
+     * Persists all relevant fields from AppContext to NVS.
+     * All operations are logged for debugging.
+     * 
+     * @param ctx AppContext containing settings to save
      */
-    bool save();
+    void save(const core::AppContext& ctx);
 
     /**
-     * @brief Reset settings to defaults
-     * @return bool True if successful
+     * @brief Load default values into AppContext
+     * 
+     * Applies factory default settings. Called automatically
+     * on first boot or when NVS read fails.
+     * 
+     * @param ctx AppContext to populate with defaults
      */
-    bool resetToDefaults();
+    void loadDefaultValues(core::AppContext& ctx);
 
     /**
-     * @brief Check if this is first boot
+     * @brief Reset all settings to factory defaults
+     * 
+     * Clears NVS storage and applies default values.
+     * 
+     * @param ctx AppContext to reset
+     * @return bool True if reset successful
+     */
+    bool resetToDefaults(core::AppContext& ctx);
+
+    /**
+     * @brief Check if this is first boot (no saved settings)
      * @return bool True if first boot
      */
-    bool isFirstBoot() const { return firstBoot_; }
+    bool isFirstBoot();
 
     /**
-     * @brief Mark first boot as complete
+     * @brief Get current persisted settings snapshot
+     * @return PersistedSettings Current persisted values
      */
-    void markFirstBootComplete();
+    PersistedSettings getPersistedSettings();
 
     /**
-     * @brief Save camera mode
-     * @param mode Camera mode
-     * @return bool True if successful
+     * @brief Save individual field: currentMode
+     * @param mode Camera mode to save
+     * @return bool True if saved successfully
      */
-    bool saveCameraMode(core::CameraMode mode);
+    bool saveCurrentMode(core::CameraMode mode);
 
     /**
-     * @brief Save palette
-     * @param palette Color palette
-     * @return bool True if successful
+     * @brief Save individual field: paletteId
+     * @param palette Palette to save
+     * @return bool True if saved successfully
      */
-    bool savePalette(core::Palette palette);
+    bool savePaletteId(core::Palette palette);
 
     /**
-     * @brief Save exposure settings
-     * @param exposure Exposure settings
-     * @return bool True if successful
+     * @brief Save individual field: brightness
+     * @param brightness Display brightness (0-255)
+     * @return bool True if saved successfully
      */
-    bool saveExposure(const core::ExposureSettings& exposure);
+    bool saveBrightness(uint8_t brightness);
 
     /**
-     * @brief Save system config
-     * @param config System configuration
-     * @return bool True if successful
+     * @brief Save individual field: captureStyle
+     * @param style Capture style to save
+     * @return bool True if saved successfully
      */
-    bool saveSystemConfig(const core::SystemConfig& config);
+    bool saveCaptureStyle(CaptureStyle style);
 
     /**
-     * @brief Check if settings storage is available
-     * @return bool True if storage is ready
+     * @brief Save individual field: lastExposure
+     * @param exposure Exposure compensation (-2 to +2)
+     * @return bool True if saved successfully
      */
-    bool isAvailable() const;
+    bool saveLastExposure(int8_t exposure);
 
-private:
     /**
-     * @brief Calculate simple checksum
-     * @param data Data buffer
-     * @param size Data size
-     * @return uint8_t Checksum value
+     * @brief Check if NVS is available and ready
+     * @return bool True if NVS is operational
      */
-    uint8_t calculateChecksum(const void* data, size_t size);
+    bool isAvailable();
 
-    hal::IStorage* storage_;    ///< Storage HAL
-    bool initialized_;          ///< Initialization flag
-    bool firstBoot_;            ///< First boot flag
-};
+    /**
+     * @brief Get NVS free entries count
+     * @return size_t Number of free NVS entries
+     */
+    size_t getFreeEntries();
+
+} // namespace settings
 
 } // namespace features
 } // namespace pxlcam

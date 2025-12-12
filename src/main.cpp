@@ -22,9 +22,7 @@
 #include "core/state_machine.h"
 #include "core/app_context.h"
 #include "hal/hal_button.h"
-#include "hal/hal_storage.h"
 #include "mocks/mock_button.h"
-#include "mocks/mock_storage.h"
 #include "features/menu_system.h"
 #include "features/settings.h"
 #include "ui/ui_theme.h"
@@ -44,9 +42,7 @@ pxlcam::AppController legacyApp;
 // v1.2.0 Core components
 pxlcam::core::StateMachine stateMachine;
 pxlcam::mocks::MockButton mockButton;
-pxlcam::mocks::MockStorage mockStorage;
 pxlcam::features::MenuSystem menuSystem;
-pxlcam::features::Settings* settings = nullptr;
 
 // UI Screens
 pxlcam::ui::SplashScreen splashScreen;
@@ -235,14 +231,21 @@ void initializeV12Components() {
     pxlcam::core::AppContext::instance().init();
     Serial.println("[Main] AppContext initialized");
     
-    // Initialize mocks
-    mockButton.init();
-    mockStorage.init();
+    // Initialize NVS settings persistence
+    if (pxlcam::features::settings::init()) {
+        // Load settings from NVS into AppContext
+        pxlcam::features::settings::load(pxlcam::core::AppContext::instance());
+        
+        if (pxlcam::features::settings::isFirstBoot()) {
+            Serial.println("[Main] First boot - default settings applied");
+        }
+    } else {
+        Serial.println("[Main] WARNING: NVS init failed, using defaults");
+        pxlcam::features::settings::loadDefaultValues(pxlcam::core::AppContext::instance());
+    }
     
-    // Initialize settings with mock storage
-    settings = new pxlcam::features::Settings(&mockStorage);
-    settings->init();
-    settings->load();
+    // Initialize mocks (for button simulation during development)
+    mockButton.init();
     
     // Initialize menu system
     menuSystem.init();

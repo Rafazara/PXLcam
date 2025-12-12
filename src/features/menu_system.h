@@ -111,14 +111,17 @@ public:
     /// Main menu ID constant
     static constexpr int MAIN_MENU_ID = 0;
     
-    /// Capture settings submenu ID
+    /// Capture settings submenu ID (renamed to Settings)
     static constexpr int CAPTURE_SETTINGS_ID = 1;
     
-    /// Display settings submenu ID
+    /// Display settings submenu ID (deprecated)
     static constexpr int DISPLAY_SETTINGS_ID = 2;
     
     /// About submenu ID
     static constexpr int ABOUT_MENU_ID = 3;
+    
+    /// Style Mode submenu ID (new for v1.2.0)
+    static constexpr int STYLE_MODE_MENU_ID = 4;
 
     /**
      * @brief Constructor

@@ -33,91 +33,76 @@ void MenuSystem::init() {
 }
 
 void MenuSystem::createDefaultMenus() {
-    // Main Menu (ID: 0) - 5 required items
+    // Main Menu (ID: 0) - 3 required items per user spec
     MenuDef mainMenu;
     mainMenu.id = MAIN_MENU_ID;
-    mainMenu.title = "PXLcam Menu";
+    mainMenu.title = "PXLcam";
     mainMenu.items = {
-        MenuItem::createAction(
-            "Preview Mode",
-            "Start camera preview",
-            []() { Serial.println("[Menu] Preview Mode selected"); }
+        MenuItem::createSubmenu(
+            "Style Mode",
+            "Select capture style",
+            STYLE_MODE_MENU_ID
         ),
         MenuItem::createSubmenu(
-            "Capture Settings",
-            "Configure capture options",
+            "Settings",
+            "Camera settings",
             CAPTURE_SETTINGS_ID
         ),
         MenuItem::createSubmenu(
-            "Display Settings",
-            "Adjust display options",
-            DISPLAY_SETTINGS_ID
-        ),
-        MenuItem::createSubmenu(
             "About",
-            "Device information",
+            "Device info",
             ABOUT_MENU_ID
-        ),
-        MenuItem::createAction(
-            "Reset Settings",
-            "Restore factory defaults",
-            []() { Serial.println("[Menu] Reset Settings selected"); }
         )
     };
     addMenu(mainMenu);
 
-    // Capture Settings Submenu (ID: 1)
-    MenuDef captureMenu;
-    captureMenu.id = CAPTURE_SETTINGS_ID;
-    captureMenu.title = "Capture Settings";
-    captureMenu.items = {
+    // Style Mode Submenu (ID: 4) - New per user spec
+    MenuDef styleMenu;
+    styleMenu.id = STYLE_MODE_MENU_ID;
+    styleMenu.title = "Style Mode";
+    styleMenu.items = {
         MenuItem::createAction(
-            "Exposure",
-            "Adjust exposure level",
-            []() { Serial.println("[Menu] Exposure settings"); }
+            "Normal",
+            "Standard capture",
+            []() { Serial.println("[Menu] Style: Normal"); }
         ),
         MenuItem::createAction(
-            "Palette",
-            "Choose color palette",
-            []() { Serial.println("[Menu] Palette settings"); }
+            "GameBoy",
+            "4-tone dithering",
+            []() { Serial.println("[Menu] Style: GameBoy"); }
         ),
         MenuItem::createAction(
-            "Resolution",
-            "Set capture resolution",
-            []() { Serial.println("[Menu] Resolution settings"); }
-        ),
-        MenuItem::createAction(
-            "Capture Style",
-            "Select effect style",
-            []() { Serial.println("[Menu] Capture style settings"); }
+            "Night",
+            "Gamma boost mode",
+            []() { Serial.println("[Menu] Style: Night"); }
         ),
         MenuItem::createBack()
     };
-    addMenu(captureMenu);
+    addMenu(styleMenu);
 
-    // Display Settings Submenu (ID: 2)
-    MenuDef displayMenu;
-    displayMenu.id = DISPLAY_SETTINGS_ID;
-    displayMenu.title = "Display Settings";
-    displayMenu.items = {
+    // Settings Submenu (ID: 1)
+    MenuDef settingsMenu;
+    settingsMenu.id = CAPTURE_SETTINGS_ID;
+    settingsMenu.title = "Settings";
+    settingsMenu.items = {
         MenuItem::createAction(
-            "Brightness",
-            "Adjust screen brightness",
-            []() { Serial.println("[Menu] Brightness settings"); }
+            "Auto Exposure",
+            "Toggle AE",
+            []() { Serial.println("[Menu] Toggle AE"); }
         ),
         MenuItem::createAction(
-            "Preview FPS",
-            "Set preview frame rate",
-            []() { Serial.println("[Menu] Preview FPS settings"); }
+            "Night Mode",
+            "Toggle night boost",
+            []() { Serial.println("[Menu] Toggle Night"); }
         ),
         MenuItem::createAction(
-            "Status Bar",
-            "Toggle status bar display",
-            []() { Serial.println("[Menu] Status bar toggle"); }
+            "Reset",
+            "Factory defaults",
+            []() { Serial.println("[Menu] Reset settings"); }
         ),
         MenuItem::createBack()
     };
-    addMenu(displayMenu);
+    addMenu(settingsMenu);
 
     // About Submenu (ID: 3)
     MenuDef aboutMenu;

@@ -206,6 +206,59 @@ const char* getStylizedPaletteName(uint8_t index);
  */
 const char* getStylizedAlgorithmName(uint8_t index);
 
+// =============================================================================
+// Custom Palette Selection API (v1.3.0)
+// =============================================================================
+
+#if PXLCAM_FEATURE_CUSTOM_PALETTES
+
+/**
+ * @brief Select a palette as current for stylized capture
+ * @param index Palette index (0 to palette count - 1)
+ * @return true if selection succeeded and persisted to NVS
+ */
+bool selectStylizedPalette(uint8_t index);
+
+/**
+ * @brief Get currently selected palette index
+ * @return Current palette index
+ */
+uint8_t getCurrentStylizedPaletteIndex();
+
+/**
+ * @brief Get current palette name
+ * @return Name of currently selected palette
+ */
+const char* getCurrentStylizedPaletteName();
+
+/**
+ * @brief Cycle to next palette and select it
+ * @param includeCustom Whether to include custom palettes in cycle
+ * @return Index of newly selected palette
+ */
+uint8_t cycleStylizedPaletteNext(bool includeCustom = true);
+
+/**
+ * @brief Cycle to previous palette and select it
+ * @param includeCustom Whether to include custom palettes in cycle
+ * @return Index of newly selected palette
+ */
+uint8_t cycleStylizedPalettePrev(bool includeCustom = true);
+
+/**
+ * @brief Save current custom palettes to SD card
+ * @return true if saved successfully
+ */
+bool saveStylizedPalettesToSD();
+
+/**
+ * @brief Reload custom palettes from SD card
+ * @return true if loaded successfully
+ */
+bool reloadStylizedPalettesFromSD();
+
+#endif // PXLCAM_FEATURE_CUSTOM_PALETTES
+
 #endif // PXLCAM_FEATURE_STYLIZED_CAPTURE
 
 }  // namespace pxlcam::capture

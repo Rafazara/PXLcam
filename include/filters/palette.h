@@ -11,7 +11,8 @@
  * - 8 built-in palettes (GameBoy, CGA, Sepia, etc.)
  * - 3 custom palette slots for user-defined palettes
  * - Safe access with automatic fallback to GB_CLASSIC
- * - Future expandability for JSON import/export
+ * - JSON import/export from SD card (/PXL/palettes.json)
+ * - NVS persistence for selected palette
  * 
  * @section usage Usage Example
  * @code
@@ -19,8 +20,10 @@
  * 
  * void setup() {
  *     pxlcam::filters::palette_init();
+ *     pxlcam::filters::palette_load_from_sd();  // Load custom palettes
  *     
- *     const auto& pal = pxlcam::filters::palette_get(PaletteType::GB_CLASSIC);
+ *     // Use current (auto-loaded from NVS) palette
+ *     const auto& pal = pxlcam::filters::palette_current();
  *     Serial.printf("Palette: %s\n", pal.name);
  *     Serial.printf("Tones: %d, %d, %d, %d\n", 
  *         pal.tones[0], pal.tones[1], pal.tones[2], pal.tones[3]);
@@ -39,6 +42,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include "pxlcam_config.h"
 
 namespace pxlcam {
 namespace filters {
@@ -74,6 +78,25 @@ constexpr uint8_t TOTAL_PALETTE_COUNT = BUILTIN_PALETTE_COUNT + CUSTOM_PALETTE_C
  * @brief Maximum length for palette names (including null terminator)
  */
 constexpr uint8_t PALETTE_NAME_MAX_LEN = 16;
+
+/**
+ * @brief Path to custom palettes JSON file on SD card
+ */
+constexpr const char* PALETTE_SD_PATH = "/PXL/palettes.json";
+
+// =============================================================================
+// Palette Source Enumeration
+// =============================================================================
+
+/**
+ * @brief Source type for a palette
+ * 
+ * Used to distinguish built-in palettes from user-defined custom palettes.
+ */
+enum class PaletteSource : uint8_t {
+    BUILTIN = 0,  ///< Built-in ROM palette (read-only)
+    CUSTOM  = 1   ///< User-defined custom palette (from SD/NVS)
+};
 
 // =============================================================================
 // Palette Type Enumeration
@@ -247,6 +270,55 @@ struct Palette {
      * Should be kept short (max 15 chars) for OLED display compatibility.
      */
     const char* name;
+};
+
+// =============================================================================
+// Custom Palette Slot Structure
+// =============================================================================
+
+#if PXLCAM_FEATURE_CUSTOM_PALETTES
+
+/**
+ * @brief Custom palette slot with load status
+ * 
+ * @details
+ * Represents a user-configurable palette slot that tracks whether
+ * valid data has been loaded from SD card or set programmatically.
+ * 
+ * @note This struct is only available when PXLCAM_FEATURE_CUSTOM_PALETTES is enabled.
+ */
+struct CustomPaletteSlot {
+    /**
+     * @brief Whether this slot contains valid data
+     * 
+     * - false: Slot is empty or contains default placeholder data
+     * - true: Slot contains user-defined palette (from SD or API)
+     */
+    bool loaded;
+    
+    /**
+     * @brief The palette data for this slot
+     */
+    Palette data;
+};
+
+#endif // PXLCAM_FEATURE_CUSTOM_PALETTES
+
+// =============================================================================
+// Palette Info Structure (for listing)
+// =============================================================================
+
+/**
+ * @brief Extended palette information for listing/enumeration
+ * 
+ * Contains all information needed to display palettes in menus
+ * and distinguish between built-in and custom palettes.
+ */
+struct PaletteInfo {
+    PaletteType type;       ///< Palette type enum value
+    PaletteSource source;   ///< Whether built-in or custom
+    bool loaded;            ///< For custom: true if loaded from SD/set by user
+    const Palette* palette; ///< Pointer to palette data (never null)
 };
 
 // =============================================================================
@@ -439,21 +511,239 @@ bool palette_set_custom(PaletteType type, const uint8_t tones[PALETTE_TONE_COUNT
 bool palette_reset_custom(PaletteType type);
 
 // =============================================================================
-// Future Expansion (TODO - Not Implemented Yet)
+// Public API - Palette Selection & Persistence (v1.3.0)
 // =============================================================================
 
-// TODO v1.3.1: Implement NVS persistence for custom palettes
-// bool palette_save_custom(PaletteType type);
-// bool palette_load_custom(PaletteType type);
-// bool palette_load_all_custom();
+#if PXLCAM_FEATURE_CUSTOM_PALETTES
 
-// TODO v1.4.0: Implement JSON import/export for palette sharing
-// bool palette_export_json(PaletteType type, char* buffer, size_t bufferSize);
-// bool palette_import_json(PaletteType type, const char* json);
+/**
+ * @brief Select a palette as the current active palette
+ * 
+ * @details
+ * Sets the specified palette as the current active palette and
+ * persists the selection to NVS for automatic loading on next boot.
+ * 
+ * If the selected palette is a custom slot that hasn't been loaded,
+ * this function will still select it (using default values).
+ * 
+ * @param type Palette type to select
+ * @return true on success (palette selected and persisted)
+ * @return false if type is invalid or NVS write failed
+ * 
+ * @code
+ * palette_select(PaletteType::SEPIA);  // Select built-in
+ * palette_select(PaletteType::CUSTOM_1);  // Select custom
+ * @endcode
+ */
+bool palette_select(PaletteType type);
 
-// TODO v1.3.1: Implement palette cycling for menu navigation
-// PaletteType palette_cycle_next(PaletteType current);
-// PaletteType palette_cycle_prev(PaletteType current);
+/**
+ * @brief Get the currently selected/active palette
+ * 
+ * @details
+ * Returns a reference to the currently active palette (as set by
+ * palette_select() or loaded from NVS on boot).
+ * 
+ * This is the main function to use in the capture pipeline to get
+ * the user's selected palette.
+ * 
+ * @return const Palette& Reference to current active palette
+ * 
+ * @note Falls back to GB_CLASSIC if no palette has been selected
+ */
+const Palette& palette_current();
+
+/**
+ * @brief Get the type of the currently selected palette
+ * 
+ * @return PaletteType Currently selected palette type
+ */
+PaletteType palette_current_type();
+
+/**
+ * @brief Load custom palettes from SD card
+ * 
+ * @details
+ * Reads /PXL/palettes.json from SD card and populates the custom
+ * palette slots (CUSTOM_1, CUSTOM_2, CUSTOM_3).
+ * 
+ * JSON format:
+ * @code{.json}
+ * {
+ *   "custom_palettes": [
+ *     { "name": "WarmSepia", "tones": [12, 80, 150, 230] },
+ *     { "name": "DeepNight", "tones": [0, 20, 90, 255] }
+ *   ]
+ * }
+ * @endcode
+ * 
+ * - Up to 3 palettes are loaded (extras ignored)
+ * - Invalid entries are skipped with warning logged
+ * - Missing file is not an error (custom slots remain default)
+ * - SD errors are logged but don't crash
+ * 
+ * @return true if file was read successfully (even if empty/partial)
+ * @return false if SD not mounted or file read error
+ * 
+ * @note Requires SD to be mounted before calling
+ * @see palette_save_to_sd()
+ */
+bool palette_load_from_sd();
+
+/**
+ * @brief Save custom palettes to SD card
+ * 
+ * @details
+ * Writes all loaded custom palette slots to /PXL/palettes.json.
+ * Creates /PXL directory if it doesn't exist.
+ * 
+ * Only slots that have been explicitly loaded or set (loaded=true)
+ * are included in the output file.
+ * 
+ * Uses atomic write (write to temp file, then rename) for safety.
+ * 
+ * @return true if file was written successfully
+ * @return false if SD not mounted or write error
+ * 
+ * @see palette_load_from_sd()
+ */
+bool palette_save_to_sd();
+
+/**
+ * @brief Load selected palette ID from NVS
+ * 
+ * @details
+ * Reads the persisted palette selection from NVS and sets it as current.
+ * Called automatically by palette_init() if PXLCAM_FEATURE_CUSTOM_PALETTES
+ * is enabled.
+ * 
+ * @return true if palette ID was loaded from NVS
+ * @return false if NVS read failed (falls back to GB_CLASSIC)
+ */
+bool palette_load_selection_from_nvs();
+
+/**
+ * @brief Set a custom palette slot with full data
+ * 
+ * @details
+ * Programmatically sets a custom palette slot with complete palette data.
+ * Marks the slot as loaded=true.
+ * 
+ * @param type Must be CUSTOM_1, CUSTOM_2, or CUSTOM_3
+ * @param palette Complete palette data to copy
+ * @return true on success
+ * @return false if type is not a custom palette
+ */
+bool palette_set_custom_slot(PaletteType type, const Palette& palette);
+
+/**
+ * @brief Get read-only access to custom palette slots
+ * 
+ * @details
+ * Returns a pointer to the internal array of custom palette slots.
+ * Useful for iterating/displaying custom palettes in menus.
+ * 
+ * @return const CustomPaletteSlot* Pointer to array of CUSTOM_PALETTE_COUNT slots
+ */
+const CustomPaletteSlot* palette_custom_slots();
+
+/**
+ * @brief Check if a custom palette slot is loaded
+ * 
+ * @param type Must be CUSTOM_1, CUSTOM_2, or CUSTOM_3
+ * @return true if slot contains user-defined data
+ * @return false if slot is empty/default or type is built-in
+ */
+bool palette_custom_is_loaded(PaletteType type);
+
+/**
+ * @brief List all available palettes with metadata
+ * 
+ * @details
+ * Fills an array with information about all palettes (built-in + custom).
+ * Useful for building palette selection menus.
+ * 
+ * @param[out] outList Array to fill (must have TOTAL_PALETTE_COUNT elements)
+ * @return Number of palettes written to outList
+ * 
+ * @code
+ * PaletteInfo list[TOTAL_PALETTE_COUNT];
+ * uint8_t count = palette_list_all(list);
+ * for (uint8_t i = 0; i < count; i++) {
+ *     Serial.printf("[%d] %s (%s)%s\n", 
+ *         i, list[i].palette->name,
+ *         list[i].source == PaletteSource::CUSTOM ? "custom" : "builtin",
+ *         list[i].loaded ? "" : " [not loaded]");
+ * }
+ * @endcode
+ */
+uint8_t palette_list_all(PaletteInfo* outList);
+
+#else // !PXLCAM_FEATURE_CUSTOM_PALETTES
+
+// Inline fallbacks when custom palettes are disabled
+
+/**
+ * @brief Select palette (no-op when custom palettes disabled)
+ */
+inline bool palette_select(PaletteType) { return false; }
+
+/**
+ * @brief Get current palette (returns GB_CLASSIC when disabled)
+ */
+inline const Palette& palette_current() { return palette_get(PaletteType::GB_CLASSIC); }
+
+/**
+ * @brief Get current palette type (returns GB_CLASSIC when disabled)
+ */
+inline PaletteType palette_current_type() { return PaletteType::GB_CLASSIC; }
+
+/**
+ * @brief Load from SD (no-op when disabled)
+ */
+inline bool palette_load_from_sd() { return false; }
+
+/**
+ * @brief Save to SD (no-op when disabled)
+ */
+inline bool palette_save_to_sd() { return false; }
+
+/**
+ * @brief Load NVS selection (no-op when disabled)
+ */
+inline bool palette_load_selection_from_nvs() { return false; }
+
+#endif // PXLCAM_FEATURE_CUSTOM_PALETTES
+
+// =============================================================================
+// Palette Cycling (v1.3.0)
+// =============================================================================
+
+/**
+ * @brief Cycle to next palette
+ * 
+ * @details
+ * Returns the next palette in sequence, wrapping around at the end.
+ * Useful for quick palette switching via button.
+ * 
+ * @param current Current palette type
+ * @param includeCustom Whether to include custom palettes in cycle
+ * @return PaletteType Next palette in sequence
+ */
+PaletteType palette_cycle_next(PaletteType current, bool includeCustom = true);
+
+/**
+ * @brief Cycle to previous palette
+ * 
+ * @param current Current palette type
+ * @param includeCustom Whether to include custom palettes in cycle
+ * @return PaletteType Previous palette in sequence
+ */
+PaletteType palette_cycle_prev(PaletteType current, bool includeCustom = true);
+
+// =============================================================================
+// Future Expansion
+// =============================================================================
 
 // TODO v1.4.0: RGB palette support for color output
 // struct RGBPalette { uint32_t colors[4]; const char* name; };

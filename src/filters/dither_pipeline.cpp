@@ -151,6 +151,62 @@ static inline uint8_t clamp_u8(int value) {
 }
 
 /**
+ * @brief Convert RGB888 to luminance using ITU-R BT.601
+ * 
+ * Y = 0.299R + 0.587G + 0.114B
+ * Using fixed-point: (77*R + 150*G + 29*B) >> 8
+ * 
+ * @param r Red component (0-255)
+ * @param g Green component (0-255)
+ * @param b Blue component (0-255)
+ * @return uint8_t Luminance value (0-255)
+ */
+static inline uint8_t rgb_to_luma(uint8_t r, uint8_t g, uint8_t b) {
+    return static_cast<uint8_t>((77 * r + 150 * g + 29 * b) >> 8);
+}
+
+/**
+ * @brief Convert RGB565 to luminance
+ * 
+ * @param rgb565 Packed RGB565 value (5-6-5 bits)
+ * @return uint8_t Luminance value (0-255)
+ */
+static inline uint8_t rgb565_to_luma(uint16_t rgb565) {
+    // Extract components and scale to 8-bit
+    uint8_t r = ((rgb565 >> 11) & 0x1F) << 3;  // 5 bits → 8 bits
+    uint8_t g = ((rgb565 >> 5) & 0x3F) << 2;   // 6 bits → 8 bits
+    uint8_t b = (rgb565 & 0x1F) << 3;          // 5 bits → 8 bits
+    return rgb_to_luma(r, g, b);
+}
+
+/**
+ * @brief Find the closest tone index for a given luminance value
+ * 
+ * Uses minimum distance comparison to find the best matching
+ * palette tone. Returns index (0-3) not the tone value.
+ * 
+ * @param luma Input luminance (0-255)
+ * @param palette Palette to search
+ * @return uint8_t Tone index (0-3)
+ */
+static inline uint8_t find_closest_tone_index(uint8_t luma, const Palette& palette) {
+    uint8_t bestIndex = 0;
+    int bestDist = 256;  // Max possible distance + 1
+    
+    for (uint8_t i = 0; i < PALETTE_TONE_COUNT; ++i) {
+        int dist = static_cast<int>(luma) - static_cast<int>(palette.tones[i]);
+        if (dist < 0) dist = -dist;  // abs()
+        
+        if (dist < bestDist) {
+            bestDist = dist;
+            bestIndex = i;
+        }
+    }
+    
+    return bestIndex;
+}
+
+/**
  * @brief Apply strength scaling to threshold offset
  * 
  * @param threshold Raw threshold from Bayer matrix (0-255)
@@ -619,6 +675,381 @@ void dither_atkinson(
         
         // Rotate error buffers for next row
         rotate_error_buffers(w, true);
+    }
+}
+
+// =============================================================================
+// Primary API - apply_palette_dither()
+// =============================================================================
+
+/**
+ * @brief Static grayscale buffer for format conversion
+ * 
+ * Used when input is RGB and needs conversion to grayscale before dithering.
+ * Size: DITHER_MAX_WIDTH * DITHER_MAX_HEIGHT = 307,200 bytes
+ * 
+ * TODO v1.3.1: Consider PSRAM allocation for larger buffers
+ */
+static uint8_t s_grayBuffer[DITHER_MAX_WIDTH * 4];  // 4 rows for streaming conversion
+
+/**
+ * @brief Convert source buffer to grayscale row by row
+ * 
+ * @param src Source buffer
+ * @param srcFormat Source format
+ * @param grayRow Output grayscale row buffer
+ * @param row Row index
+ * @param w Image width
+ */
+static void convert_row_to_gray(
+    const uint8_t* src,
+    SourceFormat srcFormat,
+    uint8_t* grayRow,
+    int row,
+    int w
+) {
+    switch (srcFormat) {
+        case SourceFormat::GRAYSCALE:
+            // Direct copy
+            memcpy(grayRow, src + row * w, w);
+            break;
+            
+        case SourceFormat::RGB888: {
+            const uint8_t* srcRow = src + row * w * 3;
+            for (int x = 0; x < w; ++x) {
+                const uint8_t* p = srcRow + x * 3;
+                grayRow[x] = rgb_to_luma(p[0], p[1], p[2]);
+            }
+            break;
+        }
+        
+        case SourceFormat::RGB565: {
+            const uint16_t* srcRow = reinterpret_cast<const uint16_t*>(src) + row * w;
+            for (int x = 0; x < w; ++x) {
+                grayRow[x] = rgb565_to_luma(srcRow[x]);
+            }
+            break;
+        }
+    }
+}
+
+/**
+ * @brief Internal ordered dithering with index output
+ * 
+ * Same as dither_ordered_8x8 but outputs tone indices instead of values.
+ */
+static void ordered_8x8_to_indices(
+    const uint8_t* src,
+    SourceFormat srcFormat,
+    uint8_t* dstIndices,
+    int w,
+    int h,
+    const Palette& palette,
+    uint8_t strength
+) {
+    // Row buffer for format conversion
+    uint8_t rowBuf[DITHER_MAX_WIDTH];
+    
+    for (int y = 0; y < h; ++y) {
+        // Convert row to grayscale if needed
+        const uint8_t* grayRow;
+        if (srcFormat == SourceFormat::GRAYSCALE) {
+            grayRow = src + y * w;
+        } else {
+            convert_row_to_gray(src, srcFormat, rowBuf, y, w);
+            grayRow = rowBuf;
+        }
+        
+        const int rowOffset = y * w;
+        const int yMod = y & 7;
+        
+        for (int x = 0; x < w; ++x) {
+            const uint8_t srcPixel = grayRow[x];
+            const int xMod = x & 7;
+            const uint8_t threshold = pgm_read_byte(&s_bayer8x8[yMod][xMod]);
+            
+            const int offset = scale_threshold(threshold, strength);
+            const int adjusted = static_cast<int>(srcPixel) + offset;
+            const uint8_t clamped = clamp_u8(adjusted);
+            
+            // Output tone INDEX (0-3) instead of tone value
+            dstIndices[rowOffset + x] = find_closest_tone_index(clamped, palette);
+        }
+    }
+}
+
+/**
+ * @brief Internal ordered 4x4 dithering with index output
+ */
+static void ordered_4x4_to_indices(
+    const uint8_t* src,
+    SourceFormat srcFormat,
+    uint8_t* dstIndices,
+    int w,
+    int h,
+    const Palette& palette,
+    uint8_t strength
+) {
+    uint8_t rowBuf[DITHER_MAX_WIDTH];
+    
+    for (int y = 0; y < h; ++y) {
+        const uint8_t* grayRow;
+        if (srcFormat == SourceFormat::GRAYSCALE) {
+            grayRow = src + y * w;
+        } else {
+            convert_row_to_gray(src, srcFormat, rowBuf, y, w);
+            grayRow = rowBuf;
+        }
+        
+        const int rowOffset = y * w;
+        const int yMod = y & 3;
+        
+        for (int x = 0; x < w; ++x) {
+            const uint8_t srcPixel = grayRow[x];
+            const int xMod = x & 3;
+            const uint8_t threshold = pgm_read_byte(&s_bayer4x4[yMod][xMod]);
+            
+            const int offset = scale_threshold(threshold, strength);
+            const int adjusted = static_cast<int>(srcPixel) + offset;
+            const uint8_t clamped = clamp_u8(adjusted);
+            
+            dstIndices[rowOffset + x] = find_closest_tone_index(clamped, palette);
+        }
+    }
+}
+
+/**
+ * @brief Internal Floyd-Steinberg with index output
+ */
+static void floyd_steinberg_to_indices(
+    const uint8_t* src,
+    SourceFormat srcFormat,
+    uint8_t* dstIndices,
+    int w,
+    int h,
+    const Palette& palette,
+    bool serpentine
+) {
+    // Convert entire image to grayscale first for error diffusion
+    // (Error diffusion needs access to neighboring pixels)
+    static uint8_t s_fullGrayBuf[DITHER_MAX_WIDTH * DITHER_MAX_HEIGHT];
+    
+    // Convert all rows
+    for (int y = 0; y < h; ++y) {
+        convert_row_to_gray(src, srcFormat, s_fullGrayBuf + y * w, y, w);
+    }
+    
+    // Clear error buffers
+    clear_error_buffers(w, false);
+    
+    const int errOffset = 2;
+    
+    for (int y = 0; y < h; ++y) {
+        const int rowOffset = y * w;
+        
+        const bool leftToRight = !serpentine || ((y & 1) == 0);
+        
+        const int xStart = leftToRight ? 0 : (w - 1);
+        const int xEnd = leftToRight ? w : -1;
+        const int xStep = leftToRight ? 1 : -1;
+        
+        for (int x = xStart; x != xEnd; x += xStep) {
+            int pixel = static_cast<int>(s_fullGrayBuf[rowOffset + x]) + s_errorRow0[x + errOffset];
+            pixel = clamp_u8(pixel);
+            
+            // Find closest tone INDEX
+            const uint8_t toneIndex = find_closest_tone_index(static_cast<uint8_t>(pixel), palette);
+            dstIndices[rowOffset + x] = toneIndex;
+            
+            // Get the actual tone value for error calculation
+            const uint8_t quantized = palette.tones[toneIndex];
+            const int error = pixel - static_cast<int>(quantized);
+            
+            // Floyd-Steinberg error distribution
+            if (leftToRight) {
+                s_errorRow0[x + errOffset + 1] += (error * 7) >> 4;
+                s_errorRow1[x + errOffset - 1] += (error * 3) >> 4;
+                s_errorRow1[x + errOffset] += (error * 5) >> 4;
+                s_errorRow1[x + errOffset + 1] += (error * 1) >> 4;
+            } else {
+                s_errorRow0[x + errOffset - 1] += (error * 7) >> 4;
+                s_errorRow1[x + errOffset + 1] += (error * 3) >> 4;
+                s_errorRow1[x + errOffset] += (error * 5) >> 4;
+                s_errorRow1[x + errOffset - 1] += (error * 1) >> 4;
+            }
+        }
+        
+        rotate_error_buffers(w, false);
+    }
+}
+
+/**
+ * @brief Internal Atkinson with index output
+ */
+static void atkinson_to_indices(
+    const uint8_t* src,
+    SourceFormat srcFormat,
+    uint8_t* dstIndices,
+    int w,
+    int h,
+    const Palette& palette,
+    bool serpentine
+) {
+    // Convert entire image to grayscale first
+    static uint8_t s_fullGrayBuf[DITHER_MAX_WIDTH * DITHER_MAX_HEIGHT];
+    
+    for (int y = 0; y < h; ++y) {
+        convert_row_to_gray(src, srcFormat, s_fullGrayBuf + y * w, y, w);
+    }
+    
+    // Clear error buffers
+    clear_error_buffers(w, true);
+    
+    const int errOffset = 2;
+    
+    for (int y = 0; y < h; ++y) {
+        const int rowOffset = y * w;
+        
+        const bool leftToRight = !serpentine || ((y & 1) == 0);
+        
+        const int xStart = leftToRight ? 0 : (w - 1);
+        const int xEnd = leftToRight ? w : -1;
+        const int xStep = leftToRight ? 1 : -1;
+        
+        for (int x = xStart; x != xEnd; x += xStep) {
+            int pixel = static_cast<int>(s_fullGrayBuf[rowOffset + x]) + s_errorRow0[x + errOffset];
+            pixel = clamp_u8(pixel);
+            
+            const uint8_t toneIndex = find_closest_tone_index(static_cast<uint8_t>(pixel), palette);
+            dstIndices[rowOffset + x] = toneIndex;
+            
+            const uint8_t quantized = palette.tones[toneIndex];
+            const int error = pixel - static_cast<int>(quantized);
+            const int errFrac = error >> 3;  // error / 8
+            
+            // Atkinson distribution (6 neighbors, 1/8 each)
+            if (leftToRight) {
+                s_errorRow0[x + errOffset + 1] += errFrac;
+                s_errorRow0[x + errOffset + 2] += errFrac;
+                s_errorRow1[x + errOffset - 1] += errFrac;
+                s_errorRow1[x + errOffset] += errFrac;
+                s_errorRow1[x + errOffset + 1] += errFrac;
+                s_errorRow2[x + errOffset] += errFrac;
+            } else {
+                s_errorRow0[x + errOffset - 1] += errFrac;
+                s_errorRow0[x + errOffset - 2] += errFrac;
+                s_errorRow1[x + errOffset + 1] += errFrac;
+                s_errorRow1[x + errOffset] += errFrac;
+                s_errorRow1[x + errOffset - 1] += errFrac;
+                s_errorRow2[x + errOffset] += errFrac;
+            }
+        }
+        
+        rotate_error_buffers(w, true);
+    }
+}
+
+DitherResult apply_palette_dither(
+    const uint8_t* src,
+    SourceFormat srcFormat,
+    uint8_t* dst,
+    int w,
+    int h,
+    const Palette& palette,
+    DitherAlgorithm algo
+) {
+    DitherConfig config(algo);
+    return apply_palette_dither_ex(src, srcFormat, dst, w, h, palette, config);
+}
+
+DitherResult apply_palette_dither_ex(
+    const uint8_t* src,
+    SourceFormat srcFormat,
+    uint8_t* dst,
+    int w,
+    int h,
+    const Palette& palette,
+    const DitherConfig& config
+) {
+    // Validate parameters
+    if (src == nullptr) {
+        return DitherResult::Error("src is null");
+    }
+    if (dst == nullptr) {
+        return DitherResult::Error("dst is null");
+    }
+    if (w <= 0 || h <= 0) {
+        return DitherResult::Error("Invalid dimensions");
+    }
+    if (w > DITHER_MAX_WIDTH) {
+        return DitherResult::Error("Width exceeds max");
+    }
+    if (h > DITHER_MAX_HEIGHT) {
+        return DitherResult::Error("Height exceeds max");
+    }
+    if (static_cast<uint8_t>(config.algorithm) >= static_cast<uint8_t>(DitherAlgorithm::COUNT)) {
+        return DitherResult::Error("Invalid algorithm");
+    }
+    
+    // Dispatch to appropriate index-output algorithm
+    switch (config.algorithm) {
+        case DitherAlgorithm::ORDERED_8X8:
+            ordered_8x8_to_indices(src, srcFormat, dst, w, h, palette, config.strength);
+            break;
+            
+        case DitherAlgorithm::ORDERED_4X4:
+            ordered_4x4_to_indices(src, srcFormat, dst, w, h, palette, config.strength);
+            break;
+            
+        case DitherAlgorithm::FLOYD_STEINBERG:
+            floyd_steinberg_to_indices(src, srcFormat, dst, w, h, palette, config.serpentine);
+            break;
+            
+        case DitherAlgorithm::ATKINSON:
+            atkinson_to_indices(src, srcFormat, dst, w, h, palette, config.serpentine);
+            break;
+            
+        default:
+            return DitherResult::Error("Unsupported algorithm");
+    }
+    
+    return DitherResult::Ok(static_cast<uint32_t>(w * h));
+}
+
+// =============================================================================
+// Utility Functions
+// =============================================================================
+
+void indices_to_grayscale(
+    const uint8_t* indices,
+    uint8_t* grayOut,
+    size_t length,
+    const Palette& palette
+) {
+    if (!indices || !grayOut || length == 0) return;
+    
+    for (size_t i = 0; i < length; ++i) {
+        // Ensure index is valid (0-3)
+        uint8_t idx = indices[i] & 0x03;
+        grayOut[i] = palette.tones[idx];
+    }
+}
+
+uint8_t source_format_bpp(SourceFormat format) {
+    switch (format) {
+        case SourceFormat::GRAYSCALE: return 1;
+        case SourceFormat::RGB565:    return 2;
+        case SourceFormat::RGB888:    return 3;
+        default:                      return 1;
+    }
+}
+
+const char* source_format_name(SourceFormat format) {
+    switch (format) {
+        case SourceFormat::GRAYSCALE: return "Grayscale";
+        case SourceFormat::RGB565:    return "RGB565";
+        case SourceFormat::RGB888:    return "RGB888";
+        default:                      return "Unknown";
     }
 }
 

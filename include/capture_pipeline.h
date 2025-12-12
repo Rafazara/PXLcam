@@ -148,4 +148,64 @@ void logHistogram(const uint8_t* gray, size_t length);
 /// @param h Height
 void logSampleTones(const uint8_t* gray, int w, int h);
 
+//==============================================================================
+// v1.3.0 Stylized Capture API
+//==============================================================================
+
+#if PXLCAM_FEATURE_STYLIZED_CAPTURE
+
+// Forward declarations from filters namespace
+namespace pxlcam::filters {
+    enum class PaletteType : uint8_t;
+    enum class DitherAlgorithm : uint8_t;
+}
+
+/**
+ * @brief Apply stylized capture using v1.3.0 filter pipeline
+ * 
+ * @param grayInput Input grayscale buffer
+ * @param output Output buffer (same size as input)
+ * @param w Image width
+ * @param h Image height
+ * @param paletteType Palette to use for quantization
+ * @param algo Dithering algorithm
+ * @param outputIndices If true, output is tone indices (0-3); if false, expanded grayscale
+ * @return true on success
+ */
+bool applyStylizedCapture(
+    const uint8_t* grayInput,
+    uint8_t* output,
+    int w, int h,
+    pxlcam::filters::PaletteType paletteType,
+    pxlcam::filters::DitherAlgorithm algo,
+    bool outputIndices = false
+);
+
+/**
+ * @brief Initialize stylized capture subsystem
+ */
+void initStylizedCapture();
+
+/**
+ * @brief Get available palette count
+ */
+uint8_t getStylizedPaletteCount();
+
+/**
+ * @brief Get available algorithm count
+ */
+uint8_t getStylizedAlgorithmCount();
+
+/**
+ * @brief Get palette name by index
+ */
+const char* getStylizedPaletteName(uint8_t index);
+
+/**
+ * @brief Get algorithm name by index
+ */
+const char* getStylizedAlgorithmName(uint8_t index);
+
+#endif // PXLCAM_FEATURE_STYLIZED_CAPTURE
+
 }  // namespace pxlcam::capture

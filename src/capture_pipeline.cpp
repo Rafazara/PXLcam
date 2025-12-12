@@ -32,10 +32,9 @@
 // =============================================================================
 
 #if PXLCAM_FEATURE_STYLIZED_CAPTURE
-// TODO v1.3.0: Enable new filter pipeline
-// #include "filters/palette.h"
-// #include "filters/dither_pipeline.h"
-// #include "filters/postprocess.h"
+#include "filters/palette.h"
+#include "filters/dither_pipeline.h"
+// #include "filters/postprocess.h"  // TODO v1.3.1
 #endif
 
 namespace pxlcam::capture {
@@ -628,5 +627,138 @@ void logSampleTones(const uint8_t* gray, int w, int h) {
         PXLCAM_LOGI_TAG(kLogTag, "%s", line);
     }
 }
+
+// =============================================================================
+// v1.3.0 Stylized Capture Hook
+// =============================================================================
+
+#if PXLCAM_FEATURE_STYLIZED_CAPTURE
+
+/**
+ * @brief Apply stylized capture using new filter pipeline
+ * 
+ * @details
+ * This hook integrates the v1.3.0 palette/dither system with the
+ * existing capture pipeline. It:
+ * 
+ * 1. Accepts grayscale input from rgb→gray conversion
+ * 2. Applies selected palette and dithering algorithm
+ * 3. Outputs either tone indices or expanded grayscale
+ * 
+ * @param grayInput Input grayscale buffer (w × h bytes)
+ * @param output Output buffer (same size)
+ * @param w Image width
+ * @param h Image height
+ * @param paletteType Palette to use
+ * @param algo Dithering algorithm
+ * @param outputIndices If true, output is tone indices (0-3); if false, expanded grayscale
+ * @return true on success
+ * 
+ * @note This function requires palette_init() and dither_init() to have been called.
+ */
+bool applyStylizedCapture(
+    const uint8_t* grayInput,
+    uint8_t* output,
+    int w, int h,
+    pxlcam::filters::PaletteType paletteType,
+    pxlcam::filters::DitherAlgorithm algo,
+    bool outputIndices
+) {
+    using namespace pxlcam::filters;
+    
+    if (!grayInput || !output || w <= 0 || h <= 0) {
+        PXLCAM_LOGE_TAG(kLogTag, "[v1.3] Stylized: invalid params");
+        return false;
+    }
+    
+    // Check initialization
+    if (!palette_is_initialized()) {
+        PXLCAM_LOGW_TAG(kLogTag, "[v1.3] Stylized: palette not init, calling palette_init()");
+        palette_init();
+    }
+    if (!dither_is_initialized()) {
+        PXLCAM_LOGW_TAG(kLogTag, "[v1.3] Stylized: dither not init, calling dither_init()");
+        dither_init();
+    }
+    
+    // Get palette
+    const Palette& palette = palette_get(paletteType);
+    PXLCAM_LOGI_TAG(kLogTag, "[v1.3] Applying stylized: palette=%s, algo=%s",
+                    palette.name, dither_get_algorithm_name(algo));
+    
+    // Apply dithering (outputs tone indices 0-3)
+    DitherResult result = apply_palette_dither(
+        grayInput, SourceFormat::GRAYSCALE,
+        output, w, h,
+        palette, algo
+    );
+    
+    if (!result.success) {
+        PXLCAM_LOGE_TAG(kLogTag, "[v1.3] Dither failed: %s", 
+                        result.errorMsg ? result.errorMsg : "unknown");
+        return false;
+    }
+    
+    PXLCAM_LOGI_TAG(kLogTag, "[v1.3] Dithered %u pixels", result.processedPixels);
+    
+    // If caller wants grayscale values instead of indices, expand
+    if (!outputIndices) {
+        indices_to_grayscale(output, output, static_cast<size_t>(w * h), palette);
+    }
+    
+    return true;
+}
+
+/**
+ * @brief Initialize v1.3.0 stylized capture subsystem
+ * 
+ * @details
+ * Call this during capture pipeline init to prepare palette and dither systems.
+ * Safe to call multiple times (idempotent).
+ */
+void initStylizedCapture() {
+    using namespace pxlcam::filters;
+    
+    PXLCAM_LOGI_TAG(kLogTag, "[v1.3] Initializing stylized capture subsystem...");
+    
+    palette_init();
+    dither_init();
+    
+    PXLCAM_LOGI_TAG(kLogTag, "[v1.3] Stylized capture ready (%u palettes, %u algorithms)",
+                    palette_get_count(), dither_get_algorithm_count());
+}
+
+/**
+ * @brief Get available palette count for menu UI
+ */
+uint8_t getStylizedPaletteCount() {
+    return pxlcam::filters::palette_get_count();
+}
+
+/**
+ * @brief Get available algorithm count for menu UI
+ */
+uint8_t getStylizedAlgorithmCount() {
+    return pxlcam::filters::dither_get_algorithm_count();
+}
+
+/**
+ * @brief Get palette name by index for menu UI
+ */
+const char* getStylizedPaletteName(uint8_t index) {
+    using namespace pxlcam::filters;
+    const Palette& pal = palette_get_by_index(index);
+    return pal.name;
+}
+
+/**
+ * @brief Get algorithm name by index for menu UI
+ */
+const char* getStylizedAlgorithmName(uint8_t index) {
+    return pxlcam::filters::dither_get_algorithm_name(
+        static_cast<pxlcam::filters::DitherAlgorithm>(index));
+}
+
+#endif // PXLCAM_FEATURE_STYLIZED_CAPTURE
 
 }  // namespace pxlcam::capture

@@ -491,6 +491,232 @@ void dither_atkinson(
 );
 
 // =============================================================================
+// Source Image Format Enumeration
+// =============================================================================
+
+/**
+ * @brief Source image format for apply_palette_dither()
+ * 
+ * @details
+ * Specifies the format of the input buffer so the dithering function
+ * can properly extract luminance values.
+ */
+enum class SourceFormat : uint8_t {
+    /**
+     * @brief 8-bit grayscale (1 byte per pixel)
+     * 
+     * Input buffer size: w × h bytes
+     * Most efficient format for dithering.
+     */
+    GRAYSCALE = 0,
+    
+    /**
+     * @brief RGB888 (3 bytes per pixel, R-G-B order)
+     * 
+     * Input buffer size: w × h × 3 bytes
+     * Will be converted to luminance using ITU-R BT.601.
+     */
+    RGB888 = 1,
+    
+    /**
+     * @brief RGB565 (2 bytes per pixel, packed)
+     * 
+     * Input buffer size: w × h × 2 bytes
+     * Common format for displays and ESP32-CAM.
+     */
+    RGB565 = 2
+};
+
+// =============================================================================
+// Dithering Result Structure
+// =============================================================================
+
+/**
+ * @brief Result structure for dithering operations
+ * 
+ * @details
+ * Contains status and optional error information for debugging.
+ */
+struct DitherResult {
+    bool success;           ///< Operation completed successfully
+    const char* errorMsg;   ///< Error message if !success (nullptr if success)
+    uint32_t processedPixels; ///< Number of pixels processed
+    
+    DitherResult() : success(false), errorMsg(nullptr), processedPixels(0) {}
+    DitherResult(bool ok) : success(ok), errorMsg(nullptr), processedPixels(0) {}
+    
+    static DitherResult Ok(uint32_t pixels = 0) {
+        DitherResult r(true);
+        r.processedPixels = pixels;
+        return r;
+    }
+    
+    static DitherResult Error(const char* msg) {
+        DitherResult r(false);
+        r.errorMsg = msg;
+        return r;
+    }
+};
+
+// =============================================================================
+// Primary API - apply_palette_dither()
+// =============================================================================
+
+/**
+ * @brief Apply palette-based dithering with format conversion
+ * 
+ * @details
+ * This is the primary entry point for the stylized capture pipeline.
+ * It accepts multiple input formats and outputs palette tone indices (0-3)
+ * suitable for indexed color rendering or further processing.
+ * 
+ * **Input Processing:**
+ * 1. Convert input to luminance (Y) based on source format
+ * 2. Apply selected dithering algorithm
+ * 3. Map quantized values to palette tone indices
+ * 
+ * **Output Format:**
+ * Each output pixel is a tone index (0-3) corresponding to palette.tones[].
+ * Use palette.tones[dst[i]] to get the actual grayscale value.
+ * 
+ * **Memory Requirements:**
+ * - No dynamic allocation for ordered dithering
+ * - Error diffusion uses internal static buffers (thread-unsafe)
+ * 
+ * **Complexity:**
+ * - Time: O(w × h) for all algorithms
+ * - Space: O(1) for ordered, O(w) for error diffusion
+ * 
+ * @param src Source image buffer
+ * @param srcFormat Format of the source buffer (GRAYSCALE, RGB888, RGB565)
+ * @param dst Destination buffer for tone indices (0-3 values)
+ * @param w Image width in pixels
+ * @param h Image height in pixels  
+ * @param palette Palette to quantize against (4-tone grayscale)
+ * @param algo Dithering algorithm to apply
+ * 
+ * @return DitherResult containing success status and error info
+ * 
+ * @pre src != nullptr && dst != nullptr
+ * @pre w > 0 && h > 0
+ * @pre w <= DITHER_MAX_WIDTH && h <= DITHER_MAX_HEIGHT
+ * @pre src buffer size >= w*h (grayscale), w*h*3 (RGB888), or w*h*2 (RGB565)
+ * @pre dst buffer size >= w*h
+ * 
+ * @warning Error diffusion algorithms modify internal static buffers.
+ *          NOT thread-safe. Do not call concurrently.
+ * 
+ * @code
+ * // Example: Process RGB888 camera frame to GameBoy-style indices
+ * using namespace pxlcam::filters;
+ * 
+ * palette_init();
+ * dither_init();
+ * 
+ * uint8_t* rgb_frame = getCameraFrame();  // 320x240 RGB888
+ * uint8_t indices[320 * 240];
+ * 
+ * const Palette& gb = palette_get(PaletteType::GB_CLASSIC);
+ * 
+ * DitherResult result = apply_palette_dither(
+ *     rgb_frame, SourceFormat::RGB888,
+ *     indices, 320, 240,
+ *     gb, DitherAlgorithm::ORDERED_8X8
+ * );
+ * 
+ * if (result.success) {
+ *     // indices[] now contains values 0-3
+ *     // Convert to actual tones: tone = gb.tones[indices[i]]
+ * }
+ * @endcode
+ * 
+ * @see apply_dither() for grayscale-to-grayscale tone output
+ * @see palette_map_index() for manual tone index mapping
+ */
+DitherResult apply_palette_dither(
+    const uint8_t* src,
+    SourceFormat srcFormat,
+    uint8_t* dst,
+    int w,
+    int h,
+    const Palette& palette,
+    DitherAlgorithm algo
+);
+
+/**
+ * @brief Apply palette dithering with extended configuration
+ * 
+ * @details
+ * Same as apply_palette_dither() but with additional configuration options
+ * for dither strength and serpentine scanning.
+ * 
+ * @param src Source image buffer
+ * @param srcFormat Format of the source buffer
+ * @param dst Destination buffer for tone indices
+ * @param w Image width
+ * @param h Image height
+ * @param palette Palette to quantize against
+ * @param config Extended dithering configuration
+ * 
+ * @return DitherResult containing success status
+ * 
+ * @see apply_palette_dither() for parameter documentation
+ */
+DitherResult apply_palette_dither_ex(
+    const uint8_t* src,
+    SourceFormat srcFormat,
+    uint8_t* dst,
+    int w,
+    int h,
+    const Palette& palette,
+    const DitherConfig& config
+);
+
+// =============================================================================
+// Utility Functions
+// =============================================================================
+
+/**
+ * @brief Convert tone index buffer to grayscale values
+ * 
+ * @details
+ * Expands palette indices (0-3) to actual grayscale values using
+ * the specified palette. Useful for preview generation.
+ * 
+ * @param indices Input buffer of tone indices (0-3)
+ * @param grayOut Output buffer for grayscale values
+ * @param length Number of pixels to convert
+ * @param palette Palette to use for conversion
+ * 
+ * @code
+ * // Convert indices to displayable grayscale
+ * indices_to_grayscale(indices, grayBuf, w * h, palette);
+ * @endcode
+ */
+void indices_to_grayscale(
+    const uint8_t* indices,
+    uint8_t* grayOut,
+    size_t length,
+    const Palette& palette
+);
+
+/**
+ * @brief Get bytes per pixel for a source format
+ * 
+ * @param format Source format
+ * @return uint8_t Bytes per pixel (1, 2, or 3)
+ */
+uint8_t source_format_bpp(SourceFormat format);
+
+/**
+ * @brief Get human-readable name for source format
+ * 
+ * @param format Source format enum
+ * @return const char* Format name string
+ */
+const char* source_format_name(SourceFormat format);
+
+// =============================================================================
 // Debug Utilities
 // =============================================================================
 
@@ -522,5 +748,38 @@ void dither_debug_benchmark(int w, int h);
 
 } // namespace filters
 } // namespace pxlcam
+
+// =============================================================================
+// Feature-Disabled Fallbacks (Inline No-Ops)
+// =============================================================================
+
+#if !PXLCAM_FEATURE_STYLIZED_CAPTURE
+
+namespace pxlcam {
+namespace filters {
+
+/**
+ * @brief No-op fallback when PXLCAM_FEATURE_STYLIZED_CAPTURE is disabled
+ */
+inline DitherResult apply_palette_dither(
+    const uint8_t*, SourceFormat, uint8_t*, int, int,
+    const Palette&, DitherAlgorithm
+) {
+    return DitherResult::Error("Feature disabled");
+}
+
+inline DitherResult apply_palette_dither_ex(
+    const uint8_t*, SourceFormat, uint8_t*, int, int,
+    const Palette&, const DitherConfig&
+) {
+    return DitherResult::Error("Feature disabled");
+}
+
+inline void indices_to_grayscale(const uint8_t*, uint8_t*, size_t, const Palette&) {}
+
+} // namespace filters
+} // namespace pxlcam
+
+#endif // !PXLCAM_FEATURE_STYLIZED_CAPTURE
 
 #endif // PXLCAM_FILTERS_DITHER_PIPELINE_H

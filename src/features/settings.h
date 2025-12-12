@@ -38,10 +38,14 @@ namespace NvsKey {
     constexpr const char* LAST_EXPOSURE = "lastExp";       ///< Last exposure value
     constexpr const char* SETTINGS_VER = "version";        ///< Settings version marker
     constexpr const char* INITIALIZED = "init";            ///< Initialization marker
+    // v1.2.0 new keys
+    constexpr const char* STYLE_MODE = "styleMode";        ///< StyleMode (Normal/GameBoy/Night)
+    constexpr const char* NIGHT_MODE = "nightMode";        ///< Night mode flag
+    constexpr const char* AUTO_EXPOSURE = "autoExp";       ///< Auto exposure flag
 }
 
 /**
- * @brief Capture style enumeration
+ * @brief Capture style enumeration (v1.2.0)
  */
 enum class CaptureStyle : uint8_t {
     NORMAL = 0,         ///< Standard capture
@@ -52,7 +56,81 @@ enum class CaptureStyle : uint8_t {
 };
 
 /**
- * @brief Persisted settings data structure
+ * @brief Style mode enumeration (v1.2.0)
+ * Maps to user-visible style selection
+ */
+enum class StyleMode : uint8_t {
+    NORMAL = 0,         ///< Standard capture, no effects
+    GAMEBOY = 1,        ///< GameBoy 4-tone dithering
+    NIGHT = 2,          ///< Night mode with gamma boost
+    STYLE_MODE_COUNT
+};
+
+/**
+ * @brief Simplified settings struct (v1.2.0 user request)
+ * 
+ * Contains the 3 user-configurable settings:
+ * - styleMode: Normal/GameBoy/Night
+ * - nightMode: Enable night boost
+ * - autoExposure: Enable auto exposure
+ */
+struct PxlcamSettings {
+    uint8_t styleMode;      ///< StyleMode enum value
+    uint8_t nightMode;      ///< 1 = enabled, 0 = disabled
+    uint8_t autoExposure;   ///< 1 = enabled, 0 = disabled
+    
+    /**
+     * @brief Get default settings
+     */
+    static PxlcamSettings defaults() {
+        return {
+            .styleMode = static_cast<uint8_t>(StyleMode::NORMAL),
+            .nightMode = 0,
+            .autoExposure = 1
+        };
+    }
+    
+    /**
+     * @brief Serialize to byte buffer
+     * @param buf Output buffer (minimum 3 bytes)
+     * @param maxLen Buffer size
+     * @return Number of bytes written (3 on success, 0 on failure)
+     */
+    size_t serialize(uint8_t* buf, size_t maxLen) const {
+        if (maxLen < 3) return 0;
+        buf[0] = styleMode;
+        buf[1] = nightMode;
+        buf[2] = autoExposure;
+        return 3;
+    }
+    
+    /**
+     * @brief Deserialize from byte buffer
+     * @param buf Input buffer
+     * @param len Buffer length
+     * @return Deserialized settings (defaults if invalid)
+     */
+    static PxlcamSettings deserialize(const uint8_t* buf, size_t len) {
+        if (len < 3) return defaults();
+        return {
+            .styleMode = buf[0],
+            .nightMode = buf[1],
+            .autoExposure = buf[2]
+        };
+    }
+    
+    /**
+     * @brief Equality operator
+     */
+    bool operator==(const PxlcamSettings& other) const {
+        return styleMode == other.styleMode &&
+               nightMode == other.nightMode &&
+               autoExposure == other.autoExposure;
+    }
+};
+
+/**
+ * @brief Persisted settings data structure (extended)
  * 
  * Contains all fields that are saved to NVS.
  */
@@ -62,6 +140,9 @@ struct PersistedSettings {
     uint8_t brightness;             ///< Display brightness (0-255)
     CaptureStyle captureStyle;      ///< Capture style/effect
     int8_t lastExposure;            ///< Last exposure compensation (-2 to +2)
+    StyleMode styleMode;            ///< v1.2.0: Style mode selection
+    bool nightModeEnabled;          ///< v1.2.0: Night mode flag
+    bool autoExposureEnabled;       ///< v1.2.0: Auto exposure flag
 
     /**
      * @brief Get default settings values
@@ -73,8 +154,31 @@ struct PersistedSettings {
             .paletteId = core::Palette::FULL_COLOR,
             .brightness = 200,
             .captureStyle = CaptureStyle::NORMAL,
-            .lastExposure = 0
+            .lastExposure = 0,
+            .styleMode = StyleMode::NORMAL,
+            .nightModeEnabled = false,
+            .autoExposureEnabled = true
         };
+    }
+    
+    /**
+     * @brief Convert to PxlcamSettings (v1.2.0 simplified struct)
+     */
+    PxlcamSettings toPxlcamSettings() const {
+        return {
+            .styleMode = static_cast<uint8_t>(styleMode),
+            .nightMode = static_cast<uint8_t>(nightModeEnabled ? 1 : 0),
+            .autoExposure = static_cast<uint8_t>(autoExposureEnabled ? 1 : 0)
+        };
+    }
+    
+    /**
+     * @brief Apply PxlcamSettings values
+     */
+    void fromPxlcamSettings(const PxlcamSettings& s) {
+        styleMode = static_cast<StyleMode>(s.styleMode);
+        nightModeEnabled = s.nightMode != 0;
+        autoExposureEnabled = s.autoExposure != 0;
     }
 };
 
@@ -205,6 +309,62 @@ namespace settings {
      * @return size_t Number of free NVS entries
      */
     size_t getFreeEntries();
+
+    //==========================================================================
+    // v1.2.0 PxlcamSettings API (simplified 3-field struct)
+    //==========================================================================
+
+    /**
+     * @brief Load PxlcamSettings from NVS
+     * @return PxlcamSettings Loaded settings or defaults
+     */
+    PxlcamSettings loadPxlcamSettings();
+
+    /**
+     * @brief Save PxlcamSettings to NVS
+     * @param settings Settings to save
+     * @return bool True if saved successfully
+     */
+    bool savePxlcamSettings(const PxlcamSettings& settings);
+
+    /**
+     * @brief Save individual field: styleMode
+     * @param mode StyleMode value (0=Normal, 1=GameBoy, 2=Night)
+     * @return bool True if saved successfully
+     */
+    bool saveStyleMode(StyleMode mode);
+
+    /**
+     * @brief Save individual field: nightMode
+     * @param enabled Night mode enabled flag
+     * @return bool True if saved successfully
+     */
+    bool saveNightMode(bool enabled);
+
+    /**
+     * @brief Save individual field: autoExposure
+     * @param enabled Auto exposure enabled flag
+     * @return bool True if saved successfully
+     */
+    bool saveAutoExposure(bool enabled);
+
+    /**
+     * @brief Get current StyleMode from NVS
+     * @return StyleMode Current style mode or NORMAL
+     */
+    StyleMode getStyleMode();
+
+    /**
+     * @brief Get night mode state from NVS
+     * @return bool Night mode enabled state
+     */
+    bool getNightMode();
+
+    /**
+     * @brief Get auto exposure state from NVS
+     * @return bool Auto exposure enabled state
+     */
+    bool getAutoExposure();
 
 } // namespace settings
 

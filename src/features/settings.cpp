@@ -566,6 +566,144 @@ size_t getFreeEntries() {
     return stats.free_entries;
 }
 
+//==============================================================================
+// v1.2.0 PxlcamSettings API Implementation
+//==============================================================================
+
+PxlcamSettings loadPxlcamSettings() {
+    Serial.printf("%s Loading PxlcamSettings...\n", TAG);
+    
+    PxlcamSettings settings = PxlcamSettings::defaults();
+    
+    if (!g_initialized || !openNvs()) {
+        Serial.printf("%s WARNING: NVS not ready, using defaults\n", TAG);
+        return settings;
+    }
+    
+    uint8_t u8Val = 0;
+    
+    if (readU8(NvsKey::STYLE_MODE, u8Val)) {
+        if (u8Val < static_cast<uint8_t>(StyleMode::STYLE_MODE_COUNT)) {
+            settings.styleMode = u8Val;
+        }
+    }
+    if (readU8(NvsKey::NIGHT_MODE, u8Val)) {
+        settings.nightMode = u8Val;
+    }
+    if (readU8(NvsKey::AUTO_EXPOSURE, u8Val)) {
+        settings.autoExposure = u8Val;
+    }
+    
+    Serial.printf("%s Loaded: styleMode=%d, nightMode=%d, autoExp=%d\n", 
+                  TAG, settings.styleMode, settings.nightMode, settings.autoExposure);
+    
+    return settings;
+}
+
+bool savePxlcamSettings(const PxlcamSettings& settings) {
+    Serial.printf("%s Saving PxlcamSettings...\n", TAG);
+    
+    if (!g_initialized || !openNvs()) {
+        Serial.printf("%s ERROR: Cannot save - not initialized\n", TAG);
+        return false;
+    }
+    
+    bool allOk = true;
+    allOk &= writeU8(NvsKey::STYLE_MODE, settings.styleMode);
+    allOk &= writeU8(NvsKey::NIGHT_MODE, settings.nightMode);
+    allOk &= writeU8(NvsKey::AUTO_EXPOSURE, settings.autoExposure);
+    
+    if (allOk) {
+        commitNvs();
+        Serial.printf("%s PxlcamSettings saved successfully\n", TAG);
+    } else {
+        Serial.printf("%s ERROR: Some fields failed to save\n", TAG);
+    }
+    
+    return allOk;
+}
+
+bool saveStyleMode(StyleMode mode) {
+    Serial.printf("%s Saving styleMode=%d\n", TAG, static_cast<int>(mode));
+    
+    if (!g_initialized || !openNvs()) {
+        return false;
+    }
+    
+    if (static_cast<uint8_t>(mode) >= static_cast<uint8_t>(StyleMode::STYLE_MODE_COUNT)) {
+        Serial.printf("%s ERROR: Invalid styleMode %d\n", TAG, static_cast<int>(mode));
+        return false;
+    }
+    
+    bool success = writeU8(NvsKey::STYLE_MODE, static_cast<uint8_t>(mode));
+    if (success) {
+        commitNvs();
+    }
+    return success;
+}
+
+bool saveNightMode(bool enabled) {
+    Serial.printf("%s Saving nightMode=%d\n", TAG, enabled ? 1 : 0);
+    
+    if (!g_initialized || !openNvs()) {
+        return false;
+    }
+    
+    bool success = writeU8(NvsKey::NIGHT_MODE, enabled ? 1 : 0);
+    if (success) {
+        commitNvs();
+    }
+    return success;
+}
+
+bool saveAutoExposure(bool enabled) {
+    Serial.printf("%s Saving autoExposure=%d\n", TAG, enabled ? 1 : 0);
+    
+    if (!g_initialized || !openNvs()) {
+        return false;
+    }
+    
+    bool success = writeU8(NvsKey::AUTO_EXPOSURE, enabled ? 1 : 0);
+    if (success) {
+        commitNvs();
+    }
+    return success;
+}
+
+StyleMode getStyleMode() {
+    if (!g_initialized || !openNvs()) {
+        return StyleMode::NORMAL;
+    }
+    
+    uint8_t val = 0;
+    if (readU8(NvsKey::STYLE_MODE, val)) {
+        if (val < static_cast<uint8_t>(StyleMode::STYLE_MODE_COUNT)) {
+            return static_cast<StyleMode>(val);
+        }
+    }
+    return StyleMode::NORMAL;
+}
+
+bool getNightMode() {
+    if (!g_initialized || !openNvs()) {
+        return false;
+    }
+    
+    uint8_t val = 0;
+    readU8(NvsKey::NIGHT_MODE, val);
+    return val != 0;
+}
+
+bool getAutoExposure() {
+    if (!g_initialized || !openNvs()) {
+        return true;  // Default to enabled
+    }
+    
+    uint8_t val = 1;  // Default
+    readU8(NvsKey::AUTO_EXPOSURE, val);
+    return val != 0;
+}
+
 } // namespace settings
 } // namespace features
 } // namespace pxlcam

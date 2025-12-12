@@ -5,6 +5,63 @@ All notable changes to PXLcam firmware will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2025-XX-XX (In Development)
+
+### Added
+
+#### Modular Filter Pipeline (`include/filters/`, `src/filters/`)
+- **Palette System** (`palette.h`): Unified color palette management
+  - 8 built-in palettes: GameBoy Classic, GB Pocket, CGA Mode 1/2, Sepia, Night, Thermal, High Contrast
+  - 3 custom palette slots with NVS persistence
+  - Palette cycling and runtime selection
+  - Feature flag: `PXLCAM_FEATURE_CUSTOM_PALETTES`
+
+- **Dithering Pipeline** (`dither_pipeline.h`): Advanced dithering algorithms
+  - Ordered dithering: 2x2, 4x4, 8x8 Bayer matrices
+  - Error diffusion: Floyd-Steinberg, Atkinson
+  - Simple threshold quantization
+  - Configurable strength and gamma correction
+  - Feature flag: `PXLCAM_FEATURE_STYLIZED_CAPTURE`
+
+- **Post-Processing Chain** (`postprocess.h`): Modular filter chain
+  - Gamma correction, contrast, brightness adjustment
+  - Sharpening (unsharp mask)
+  - Noise reduction
+  - Histogram equalization
+  - Vignette effect
+  - Film grain overlay
+  - Preset configurations for quick setup
+
+#### WiFi Preview System (`wifi_preview.h`)
+- Real-time camera preview streaming over WiFi
+- Access Point (AP) mode: camera creates its own network
+- Station (STA) mode: camera joins existing network
+- MJPEG streaming for browser compatibility
+- WebSocket binary frames for low latency
+- Multiple simultaneous clients support
+- Feature flag: `PXLCAM_FEATURE_WIFI_PREVIEW` (disabled by default)
+
+#### Timelapse Controller (`timelapse.h`)
+- Automated capture at configurable intervals (1 second to 24 hours)
+- Frame counting and progress tracking
+- Pause/resume functionality
+- Power-saving modes between captures
+- Integration with stylized capture
+- Feature flag: `PXLCAM_FEATURE_TIMELAPSE` (disabled by default)
+
+### Changed
+- Updated `pxlcam_config.h` with new v1.3.0 feature flags
+- Added v1.3.0 hooks in `app_controller.cpp` (commented, ready for activation)
+- Prepared `capture_pipeline.cpp` for new filter pipeline integration
+
+### Technical Details
+- New namespaces: `pxlcam::filters`, module classes in `pxlcam::`
+- All new features are compile-time configurable
+- Memory-conscious design with optional feature compilation
+- Test suite expanded: `test/test_v1_3/`
+
+---
+
 ## [1.1.0] - 2025-01-XX
 
 ### Added

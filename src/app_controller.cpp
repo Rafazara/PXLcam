@@ -21,6 +21,24 @@
 #include "nvs_store.h"
 #include "display_menu.h"
 
+// =============================================================================
+// v1.3.0 Module Includes (conditionally compiled)
+// =============================================================================
+
+#if PXLCAM_FEATURE_STYLIZED_CAPTURE
+#include "filters/palette.h"
+#include "filters/dither_pipeline.h"
+#include "filters/postprocess.h"
+#endif
+
+#if PXLCAM_FEATURE_WIFI_PREVIEW
+#include "wifi_preview.h"
+#endif
+
+#if PXLCAM_FEATURE_TIMELAPSE
+#include "timelapse.h"
+#endif
+
 namespace pxlcam {
 
 namespace {
@@ -33,7 +51,7 @@ constexpr bool kEnableMetrics = false;
 }  // namespace
 
 void AppController::begin() {
-    PXLCAM_LOGI("AppController begin (v1.2.0)");
+    PXLCAM_LOGI("AppController begin (v1.3.0)");
     cameraPins_ = makeDefaultPins();
     cameraSettings_ = makeDefaultSettings();
     fallbackToJpeg_ = false;
@@ -47,6 +65,31 @@ void AppController::begin() {
     pxlcam::ui::init();
     pxlcam::menu::init();  // Modal menu system
 
+    // ==========================================================================
+    // v1.3.0 Subsystem Initialization
+    // ==========================================================================
+    
+#if PXLCAM_FEATURE_STYLIZED_CAPTURE
+    // TODO v1.3.0: Initialize stylized capture pipeline
+    // pxlcam::filters::palette_init();
+    // pxlcam::filters::dither_init();
+    // pxlcam::filters::postprocess_init();
+    // PXLCAM_LOGI("v1.3.0: Stylized capture initialized");
+#endif
+
+#if PXLCAM_FEATURE_WIFI_PREVIEW
+    // TODO v1.3.0: WiFi preview init (only when enabled via menu)
+    // WiFi is NOT initialized at boot to save power
+    // pxlcam::WifiPreview::instance().init();
+    // PXLCAM_LOGI("v1.3.0: WiFi preview ready (not started)");
+#endif
+
+#if PXLCAM_FEATURE_TIMELAPSE
+    // TODO v1.3.0: Timelapse controller init
+    // pxlcam::TimelapseController::instance().init();
+    // PXLCAM_LOGI("v1.3.0: Timelapse controller ready");
+#endif
+
     transitionTo(AppState::InitDisplay);
 }
 
@@ -55,6 +98,29 @@ void AppController::tick() {
     if (now >= startupGuardExpiryMs_) {
         button_.update(now);
     }
+
+    // ==========================================================================
+    // v1.3.0 Background Tasks
+    // ==========================================================================
+    
+#if PXLCAM_FEATURE_TIMELAPSE
+    // TODO v1.3.0: Process timelapse tick
+    // if (pxlcam::TimelapseController::instance().isRunning()) {
+    //     pxlcam::TimelapseController::instance().tick();
+    //     if (pxlcam::TimelapseController::instance().shouldCapture()) {
+    //         // Trigger capture and mark complete
+    //         transitionTo(AppState::Capture);
+    //         return;
+    //     }
+    // }
+#endif
+
+#if PXLCAM_FEATURE_WIFI_PREVIEW
+    // TODO v1.3.0: Process WiFi events
+    // if (pxlcam::WifiPreview::instance().isActive()) {
+    //     pxlcam::WifiPreview::instance().tick();
+    // }
+#endif
 
     // Handle menu if visible (v1.2.0)
 #if PXLCAM_ENABLE_MENU

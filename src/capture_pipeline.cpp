@@ -8,6 +8,11 @@
  * - NORMAL: Clean grayscale conversion
  * 
  * Output: 8-bit grayscale BMP for easy viewing
+ * 
+ * v1.3.0 TODOs:
+ * - Integrate new palette system from filters/palette.h
+ * - Use dither_pipeline for algorithm selection
+ * - Add postprocess chain integration
  */
 
 #include "capture_pipeline.h"
@@ -21,6 +26,17 @@
 #include <img_converters.h>
 #include <cstring>
 #include <cmath>
+
+// =============================================================================
+// v1.3.0 Filter Pipeline Includes
+// =============================================================================
+
+#if PXLCAM_FEATURE_STYLIZED_CAPTURE
+// TODO v1.3.0: Enable new filter pipeline
+// #include "filters/palette.h"
+// #include "filters/dither_pipeline.h"
+// #include "filters/postprocess.h"
+#endif
 
 namespace pxlcam::capture {
 

@@ -1,20 +1,82 @@
 #pragma once
 /**
  * @file pxlcam_config.h
- * @brief Compile-time configuration flags for PXLcam v1.2.0
+ * @brief Compile-time configuration flags for PXLcam v1.3.0
  * 
  * All feature flags can be enabled via platformio.ini build_flags
+ * 
+ * v1.3.0 New Features:
+ * - PXLCAM_FEATURE_WIFI_PREVIEW: WiFi streaming (disabled by default)
+ * - PXLCAM_FEATURE_TIMELAPSE: Automated timelapse capture
+ * - PXLCAM_FEATURE_STYLIZED_CAPTURE: Palette-based stylized output
+ * - PXLCAM_FEATURE_CUSTOM_PALETTES: User-defined color palettes
  */
 
 // =============================================================================
 // VERSION
 // =============================================================================
 #ifndef PXLCAM_VERSION
-#define PXLCAM_VERSION "1.2.0"
+#define PXLCAM_VERSION "1.3.0"
 #endif
 
 // =============================================================================
-// FEATURE FLAGS (1 = enabled, 0 = disabled)
+// v1.3.0 FEATURE FLAGS
+// =============================================================================
+
+/**
+ * @brief Enable WiFi Preview streaming
+ * 
+ * When enabled, camera can stream preview over WiFi to web browser.
+ * Supports AP mode (camera creates network) and STA mode (joins network).
+ * 
+ * Memory impact: ~40KB additional RAM when active
+ * Default: 0 (disabled to save memory)
+ */
+#ifndef PXLCAM_FEATURE_WIFI_PREVIEW
+#define PXLCAM_FEATURE_WIFI_PREVIEW 0
+#endif
+
+/**
+ * @brief Enable Timelapse capture mode
+ * 
+ * Automated capture at configurable intervals.
+ * Supports power-saving modes between captures.
+ * 
+ * Memory impact: ~2KB RAM
+ * Default: 0 (disabled)
+ */
+#ifndef PXLCAM_FEATURE_TIMELAPSE
+#define PXLCAM_FEATURE_TIMELAPSE 0
+#endif
+
+/**
+ * @brief Enable Stylized Capture output
+ * 
+ * Apply palette-based dithering to captured images.
+ * Creates retro/artistic style output (GameBoy, CGA, etc.)
+ * 
+ * Memory impact: ~4KB RAM for lookup tables
+ * Default: 1 (enabled)
+ */
+#ifndef PXLCAM_FEATURE_STYLIZED_CAPTURE
+#define PXLCAM_FEATURE_STYLIZED_CAPTURE 1
+#endif
+
+/**
+ * @brief Enable Custom Palettes
+ * 
+ * Allow users to create and save custom color palettes.
+ * Palettes stored in NVS flash.
+ * 
+ * Memory impact: ~1KB NVS per palette
+ * Default: 1 (enabled)
+ */
+#ifndef PXLCAM_FEATURE_CUSTOM_PALETTES
+#define PXLCAM_FEATURE_CUSTOM_PALETTES 1
+#endif
+
+// =============================================================================
+// LEGACY FEATURE FLAGS (v1.2.0 and earlier)
 // =============================================================================
 
 /// Enable histogram equalization in preview pipeline

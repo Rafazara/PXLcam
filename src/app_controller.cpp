@@ -44,6 +44,16 @@
 #include "timelapse_power.h"
 #endif
 
+// =============================================================================
+// Hardware Test Mode (v1.3.0-HWTEST)
+// =============================================================================
+
+#if PXLCAM_HWTEST
+#include "hwtest_overlay.h"
+#include "hwtest_log.h"
+#include <SD_MMC.h>
+#endif
+
 namespace pxlcam {
 
 namespace {
@@ -98,6 +108,16 @@ void AppController::begin() {
     PXLCAM_LOGI("v1.3.0: Timelapse subsystem ready");
 #endif
 
+    // ==========================================================================
+    // v1.3.0-HWTEST: Diagnostic Mode Initialization
+    // ==========================================================================
+#if PXLCAM_HWTEST
+    pxlcam::hwtest::DiagConfig diagCfg;
+    diagCfg.updateIntervalMs = 500;
+    pxlcam::hwtest::init(&diagCfg);
+    PXLCAM_LOGI("=== HWTEST DIAGNOSTIC MODE ACTIVE ===");
+#endif
+
     transitionTo(AppState::InitDisplay);
 }
 
@@ -106,6 +126,22 @@ void AppController::tick() {
     if (now >= startupGuardExpiryMs_) {
         button_.update(now);
     }
+
+    // ==========================================================================
+    // v1.3.0-HWTEST: Diagnostic Updates
+    // ==========================================================================
+#if PXLCAM_HWTEST
+    pxlcam::hwtest::update();
+    pxlcam::hwtest::tickFps();
+    pxlcam::hwtest::logUpdate();
+    
+    // Log metrics every 10 seconds
+    static uint32_t lastMetricsLog = 0;
+    if (now - lastMetricsLog >= 10000) {
+        pxlcam::hwtest::logToSerial("TICK");
+        lastMetricsLog = now;
+    }
+#endif
 
     // ==========================================================================
     // v1.3.0 Background Tasks
@@ -332,8 +368,29 @@ void AppController::handleInitStorage() {
     
     if (sdAvailable_) {
         showStatus("SD READY", true);
+        
+#if PXLCAM_HWTEST
+        // Initialize HWTEST logging after SD is ready
+        pxlcam::hwtest::LogConfig logCfg;
+        logCfg.logPath = "/PXL/hwtest.log";
+        logCfg.flushIntervalMs = 5000;
+        logCfg.logToSerial = true;
+        if (pxlcam::hwtest::logInit(&logCfg)) {
+            PXLCAM_LOGI("HWTEST: SD logging initialized");
+            HWTEST_EVENT("SD_INIT", "Storage ready");
+        }
+        
+        // Get SD card info for metrics
+        uint64_t total = SD_MMC.totalBytes() / (1024 * 1024);
+        uint64_t free = (SD_MMC.totalBytes() - SD_MMC.usedBytes()) / (1024 * 1024);
+        pxlcam::hwtest::setSdStatus(true, total, free);
+#endif
     } else {
         PXLCAM_LOGW("SD not available - captures will not be saved");
+#if PXLCAM_HWTEST
+        pxlcam::hwtest::setSdStatus(false, 0, 0);
+        HWTEST_EVENT("SD_FAIL", "No SD card");
+#endif
 #if PXLCAM_ENABLE_MENU
         pxlcam::ui::drawErrorScreen("AVISO", "SD nao encontrado\nApenas preview", false);
         delay(2000);
@@ -534,6 +591,14 @@ void AppController::handleSave() {
         pxlcam::ui::drawSuccessScreen("FOTO SALVA", filePath + 6, 0);  // Skip "/DCIM/"
 #endif
 
+#if PXLCAM_HWTEST
+        // Record capture timing for diagnostics
+        pxlcam::hwtest::recordCaptureTiming(captureDurationMs_, filterDurationMs_, saveDurationMs_);
+        pxlcam::hwtest::incrementFilesWritten();
+        HWTEST_EVENT("CAPTURE_OK", filePath);
+        pxlcam::hwtest::logToSerial("CAPTURE");
+#endif
+
 #if PXLCAM_FEATURE_TIMELAPSE
         // v1.3.0: Notify timelapse controller of successful capture
         if (pxlcam::TimelapseController::instance().isRunning()) {
@@ -546,6 +611,11 @@ void AppController::handleSave() {
         PXLCAM_LOGE("Failed to save frame");
 #if PXLCAM_ENABLE_MENU
         pxlcam::ui::drawErrorScreen("ERRO", "Falha ao salvar", true);
+#endif
+
+#if PXLCAM_HWTEST
+        HWTEST_EVENT("CAPTURE_FAIL", "Save error");
+        pxlcam::hwtest::logToSerial("CAP_ERR");
 #endif
 
 #if PXLCAM_FEATURE_TIMELAPSE
@@ -589,6 +659,10 @@ bool AppController::configureCamera() {
     cameraSettings_.frameBufferCount = psramAvailable_ ? 2 : 1;
     cameraSettings_.enableLedFlash = false;
 
+    // ==========================================================================
+    // STABILITY FIX: Always boot in JPEG safe mode unless RGB888 experimental
+    // ==========================================================================
+    
     if (!psramAvailable_) {
         strncpy(lastMessage_, "NO PSRAM", sizeof(lastMessage_) - 1);
         lastMessage_[sizeof(lastMessage_) - 1] = '\0';
@@ -599,20 +673,38 @@ bool AppController::configureCamera() {
         return initCamera(cameraPins_, cameraSettings_);
     }
 
+#if PXLCAM_FEATURE_RGB888_EXPERIMENTAL
+    // Experimental: Try RGB888 with automatic fallback
+    PXLCAM_LOGI("RGB888 experimental mode enabled - attempting init");
     cameraSettings_.pixelFormat = PIXFORMAT_RGB888;
     cameraUsesRgb_ = true;
     if (initCamera(cameraPins_, cameraSettings_)) {
+        PXLCAM_LOGI("RGB888 init SUCCESS");
         return true;
     }
 
     PXLCAM_LOGW("RGB888 init failed, attempting JPEG fallback");
     shutdownCamera();
+#else
+    // Safe mode: Skip RGB888 entirely, boot directly in JPEG
+    PXLCAM_LOGI("RGB888 disabled (safe mode) - using JPEG");
+#endif
+
+    // JPEG fallback (always safe)
     cameraUsesRgb_ = false;
     cameraSettings_.pixelFormat = PIXFORMAT_JPEG;
     fallbackToJpeg_ = true;
-    strncpy(lastMessage_, "RGB FAIL", sizeof(lastMessage_) - 1);
+    
+    if (initCamera(cameraPins_, cameraSettings_)) {
+        PXLCAM_LOGI("Camera initialized in JPEG mode");
+        return true;
+    }
+    
+    // Critical: Camera completely failed
+    PXLCAM_LOGE("Camera init FAILED - even JPEG mode did not work");
+    strncpy(lastMessage_, "CAM FAIL", sizeof(lastMessage_) - 1);
     lastMessage_[sizeof(lastMessage_) - 1] = '\0';
-    return initCamera(cameraPins_, cameraSettings_);
+    return false;
 }
 
 void AppController::releaseActiveFrame() {

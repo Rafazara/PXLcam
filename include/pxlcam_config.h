@@ -75,6 +75,22 @@
 #define PXLCAM_FEATURE_CUSTOM_PALETTES 1
 #endif
 
+/**
+ * @brief Enable RGB888 Experimental Mode
+ * 
+ * WARNING: RGB888 may cause boot loops on some ESP32-CAM boards.
+ * This is disabled by default for stability.
+ * Enable only for development/testing with JPEG fallback.
+ * 
+ * When disabled, camera always boots in JPEG mode (safe).
+ * When enabled, camera attempts RGB888 with automatic JPEG fallback.
+ * 
+ * Default: 0 (disabled - JPEG safe mode)
+ */
+#ifndef PXLCAM_FEATURE_RGB888_EXPERIMENTAL
+#define PXLCAM_FEATURE_RGB888_EXPERIMENTAL 0
+#endif
+
 // =============================================================================
 // LEGACY FEATURE FLAGS (v1.2.0 and earlier)
 // =============================================================================

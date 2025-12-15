@@ -174,7 +174,24 @@ camera_fb_t *captureFrame() {
         return nullptr;
     }
 
-    return esp_camera_fb_get();
+    camera_fb_t* fb = esp_camera_fb_get();
+    
+    // ==========================================================================
+    // GUARD-RAIL: Validate frame buffer to prevent divide-by-zero crashes
+    // ==========================================================================
+    if (!fb) {
+        PXLCAM_LOGE_TAG(kLogTag, "captureFrame: esp_camera_fb_get returned NULL");
+        return nullptr;
+    }
+    
+    if (fb->width == 0 || fb->height == 0 || fb->len == 0) {
+        PXLCAM_LOGE_TAG(kLogTag, "captureFrame: Invalid frame (w=%u h=%u len=%u)",
+                        fb->width, fb->height, fb->len);
+        esp_camera_fb_return(fb);
+        return nullptr;
+    }
+    
+    return fb;
 }
 
 void releaseFrame(camera_fb_t *frame) {

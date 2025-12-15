@@ -44,6 +44,10 @@ class AppController {
     void handleSave();
     void handleFeedback(uint32_t nowMs);
     void handleError();
+    
+    // v1.3.0: Timelapse handling
+    void handleTimelapseMenu();
+    void updateTimelapseDisplay();
 
     bool configureCamera();
     void releaseActiveFrame();

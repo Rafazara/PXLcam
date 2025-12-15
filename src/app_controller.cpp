@@ -37,6 +37,9 @@
 
 #if PXLCAM_FEATURE_TIMELAPSE
 #include "timelapse.h"
+#include "timelapse_settings.h"
+#include "timelapse_menu.h"
+#include "timelapse_power.h"
 #endif
 
 namespace pxlcam {
@@ -85,9 +88,12 @@ void AppController::begin() {
 #endif
 
 #if PXLCAM_FEATURE_TIMELAPSE
-    // v1.3.0: Initialize timelapse controller
+    // v1.3.0: Initialize timelapse subsystem
     pxlcam::TimelapseController::instance().init();
-    PXLCAM_LOGI("v1.3.0: Timelapse controller ready");
+    pxlcam::timelapse::settingsInit();
+    pxlcam::timelapse::menuInit();
+    pxlcam::timelapse::powerInit();
+    PXLCAM_LOGI("v1.3.0: Timelapse subsystem ready");
 #endif
 
     transitionTo(AppState::InitDisplay);
@@ -107,10 +113,25 @@ void AppController::tick() {
     // v1.3.0: Process timelapse tick
     if (pxlcam::TimelapseController::instance().isRunning()) {
         pxlcam::TimelapseController::instance().tick();
+        
+        // Update display periodically during timelapse (every 500ms)
+        static uint32_t lastDisplayUpdate = 0;
+        if (now - lastDisplayUpdate >= 500) {
+            updateTimelapseDisplay();
+            lastDisplayUpdate = now;
+        }
+        
         if (pxlcam::TimelapseController::instance().shouldCapture()) {
             // Trigger capture and mark complete
             transitionTo(AppState::Capture);
             return;
+        }
+        
+        // Check for light sleep opportunity
+        uint32_t nextCapture = pxlcam::TimelapseController::instance().getTimeToNextCapture();
+        if (pxlcam::timelapse::shouldUseSleep(nextCapture) && nextCapture > 5000) {
+            pxlcam::timelapse::enterLightSleep(nextCapture);
+            pxlcam::timelapse::handleWakeup();
         }
     }
 #endif
@@ -160,8 +181,18 @@ void AppController::tick() {
                     // Show modal menu - blocks until selection
                     pxlcam::menu::MenuResult result = pxlcam::menu::showModalAt(menuIdx);
                     
-                    // Apply selection if not cancelled
-                    if (result != pxlcam::menu::MODE_CANCELLED) {
+                    // Handle selection
+                    if (result == pxlcam::menu::MODE_CANCELLED) {
+                        // Do nothing
+                    }
+#if PXLCAM_FEATURE_TIMELAPSE
+                    else if (result == pxlcam::menu::MODE_TIMELAPSE) {
+                        // v1.3.0: Open timelapse submenu
+                        handleTimelapseMenu();
+                    }
+#endif
+                    else {
+                        // Mode change
                         uint8_t newModeVal = pxlcam::menu::toCaptureModeValue(result);
                         pxlcam::mode::setMode(static_cast<pxlcam::mode::CaptureMode>(newModeVal), true);
                         PXLCAM_LOGI("Mode changed to: %s", pxlcam::menu::getResultName(result));
@@ -593,5 +624,83 @@ void AppController::logMetrics() const {
     const uint32_t freeHeap = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
     PXLCAM_LOGI("Metrics - capture:%ums filter:%ums save:%ums free_psram:%u free_heap:%u", captureDurationMs_, filterDurationMs_, saveDurationMs_, freePsram, freeHeap);
 }
+
+// =============================================================================
+// v1.3.0: Timelapse Mode Integration
+// =============================================================================
+
+#if PXLCAM_FEATURE_TIMELAPSE
+void AppController::handleTimelapseMenu() {
+    using namespace pxlcam::timelapse;
+    
+    // Show timelapse submenu
+    MenuResult result = showMenu();
+    
+    switch (result) {
+        case MenuResult::START: {
+            // Configure and start timelapse
+            TimelapseInterval interval = getCurrentInterval();
+            MaxFramesOption maxFrames = getCurrentMaxFrames();
+            
+            uint32_t intervalMs = intervalToMs(interval);
+            uint32_t maxFramesVal = maxFramesToValue(maxFrames);
+            
+            // Apply settings to controller
+            pxlcam::TimelapseController& ctrl = pxlcam::TimelapseController::instance();
+            ctrl.setInterval(intervalMs);
+            ctrl.setMaxFrames(maxFramesVal);
+            
+            // Show start screen
+            drawStartScreen(intervalMs, maxFramesVal);
+            delay(1500);
+            
+            // Start timelapse
+            ctrl.begin();
+            PXLCAM_LOGI("Timelapse started: interval=%lums, maxFrames=%lu", 
+                        intervalMs, maxFramesVal);
+            break;
+        }
+        
+        case MenuResult::STOP: {
+            // Stop timelapse
+            pxlcam::TimelapseController& ctrl = pxlcam::TimelapseController::instance();
+            uint32_t frames = ctrl.getFramesCaptured();
+            ctrl.stop();
+            
+            // Show summary
+            drawStoppedScreen(frames);
+            delay(2000);
+            
+            PXLCAM_LOGI("Timelapse stopped: %lu frames captured", frames);
+            break;
+        }
+        
+        case MenuResult::INTERVAL:
+        case MenuResult::MAX_FRAMES:
+            // Settings changed, controller will pick up on next start
+            PXLCAM_LOGI("Timelapse settings updated");
+            break;
+            
+        case MenuResult::BACK:
+        case MenuResult::CANCELLED:
+        default:
+            // Do nothing
+            break;
+    }
+}
+
+void AppController::updateTimelapseDisplay() {
+    if (pxlcam::TimelapseController::instance().isRunning()) {
+        pxlcam::timelapse::drawActiveScreen();
+    }
+}
+#else
+void AppController::handleTimelapseMenu() {
+    // Timelapse disabled
+}
+void AppController::updateTimelapseDisplay() {
+    // Timelapse disabled
+}
+#endif // PXLCAM_FEATURE_TIMELAPSE
 
 }  // namespace pxlcam

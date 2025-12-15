@@ -48,6 +48,11 @@ class AppController {
     // v1.3.0: Timelapse handling
     void handleTimelapseMenu();
     void updateTimelapseDisplay();
+    
+    // v1.3.0: WiFi Preview handling
+    void handleWifiMenu();
+    void handleWifiPreviewToggle();
+    void updateWifiPreviewDisplay();
 
     bool configureCamera();
     void releaseActiveFrame();
@@ -85,6 +90,9 @@ class AppController {
     uint8_t* processedImageData_ = nullptr;
     size_t processedImageLen_ = 0;
     const char* processedExtension_ = "raw";
+    
+    // v1.3.0: WiFi Preview state
+    bool wifiPreviewActive_ = false;
 };
 
 }  // namespace pxlcam

@@ -36,7 +36,8 @@ enum MenuResult : uint8_t {
     MODE_NIGHT   = 1,   ///< Night vision mode selected
     MODE_NORMAL  = 2,   ///< Normal capture mode selected
     MODE_TIMELAPSE = 3, ///< Timelapse mode selected (v1.3.0)
-    MODE_CANCELLED = 4  ///< Menu was cancelled (timeout/back)
+    MODE_WIFI    = 4,   ///< WiFi Preview selected (v1.3.0)
+    MODE_CANCELLED = 5  ///< Menu was cancelled (timeout/back)
 };
 
 //==============================================================================

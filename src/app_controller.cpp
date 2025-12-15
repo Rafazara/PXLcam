@@ -33,6 +33,8 @@
 
 #if PXLCAM_FEATURE_WIFI_PREVIEW
 #include "wifi_preview.h"
+#include "wifi_menu.h"
+#include "wifi_qrcode.h"
 #endif
 
 #if PXLCAM_FEATURE_TIMELAPSE
@@ -137,10 +139,17 @@ void AppController::tick() {
 #endif
 
 #if PXLCAM_FEATURE_WIFI_PREVIEW
-    // TODO v1.3.0: Process WiFi events
-    // if (pxlcam::WifiPreview::instance().isActive()) {
-    //     pxlcam::WifiPreview::instance().tick();
-    // }
+    // v1.3.0: Process WiFi events if active
+    if (wifiPreviewActive_ && pxlcam::WifiPreview::instance().isActive()) {
+        pxlcam::WifiPreview::instance().tick();
+        
+        // Update WiFi status display periodically
+        static uint32_t lastWifiUpdate = 0;
+        if (now - lastWifiUpdate >= 1000) {
+            updateWifiPreviewDisplay();
+            lastWifiUpdate = now;
+        }
+    }
 #endif
 
     // Handle menu if visible (v1.2.0)
@@ -189,6 +198,12 @@ void AppController::tick() {
                     else if (result == pxlcam::menu::MODE_TIMELAPSE) {
                         // v1.3.0: Open timelapse submenu
                         handleTimelapseMenu();
+                    }
+#endif
+#if PXLCAM_FEATURE_WIFI_PREVIEW
+                    else if (result == pxlcam::menu::MODE_WIFI) {
+                        // v1.3.0: Open WiFi Preview submenu
+                        handleWifiMenu();
                     }
 #endif
                     else {
@@ -702,5 +717,157 @@ void AppController::updateTimelapseDisplay() {
     // Timelapse disabled
 }
 #endif // PXLCAM_FEATURE_TIMELAPSE
+
+// =============================================================================
+// v1.3.0: WiFi Preview Integration
+// =============================================================================
+
+#if PXLCAM_FEATURE_WIFI_PREVIEW
+void AppController::handleWifiPreviewToggle() {
+    if (!wifiPreviewActive_) {
+        // Start WiFi Preview
+        showStatus("WiFi Starting...");
+        
+        // Initialize and start AP
+        pxlcam::WifiPreviewConfig config;
+        strncpy(config.ssid, "PXLcam", sizeof(config.ssid));
+        strncpy(config.password, "12345678", sizeof(config.password));
+        config.mode = pxlcam::WifiMode::AP;
+        config.targetFps = 10;  // Lower FPS for stability
+        config.quality = 40;   // Lower quality for speed
+        
+        if (pxlcam::WifiPreview::instance().init(config) &&
+            pxlcam::WifiPreview::instance().start()) {
+            
+            wifiPreviewActive_ = true;
+            
+            // Show success with IP
+            String ip = pxlcam::WifiPreview::instance().getIPAddress();
+            char buf[64];
+            snprintf(buf, sizeof(buf), "WiFi ON\n%s", ip.c_str());
+            showStatus(buf);
+            delay(2000);
+            
+            PXLCAM_LOGI("WiFi Preview started: SSID=PXLcam IP=%s", ip.c_str());
+        } else {
+            showStatus("WiFi FAILED!");
+            delay(1500);
+            PXLCAM_LOGE("WiFi Preview failed to start");
+        }
+    } else {
+        // Stop WiFi Preview
+        pxlcam::WifiPreview::instance().stop();
+        wifiPreviewActive_ = false;
+        
+        showStatus("WiFi OFF");
+        delay(1000);
+        
+        PXLCAM_LOGI("WiFi Preview stopped");
+    }
+    
+    showIdleScreen();
+}
+
+void AppController::updateWifiPreviewDisplay() {
+    if (!wifiPreviewActive_) return;
+    
+    auto status = pxlcam::WifiPreview::instance().getStatus();
+    
+    // Could add OLED overlay with client count, etc.
+    // For now just log periodically
+    static uint32_t lastLog = 0;
+    if (millis() - lastLog > 10000) {  // Every 10s
+        PXLCAM_LOGI("WiFi: clients=%u frames=%lu", 
+                    status.clientCount, status.framesServed);
+        lastLog = millis();
+    }
+}
+
+void AppController::handleWifiMenu() {
+    using namespace pxlcam::wifi_menu;
+    
+    // Show WiFi submenu
+    WifiMenuResult result = showMenu();
+    
+    switch (result) {
+        case WifiMenuResult::START: {
+            // Start WiFi Preview
+            drawStartingScreen();
+            delay(500);
+            
+            pxlcam::WifiPreviewConfig config;
+            strncpy(config.ssid, "PXLcam", sizeof(config.ssid));
+            strncpy(config.password, "12345678", sizeof(config.password));
+            config.mode = pxlcam::WifiMode::AP;
+            config.targetFps = 10;
+            config.quality = 40;
+            
+            if (pxlcam::WifiPreview::instance().init(config) &&
+                pxlcam::WifiPreview::instance().start()) {
+                
+                wifiPreviewActive_ = true;
+                
+                // Enable mDNS for pxlcam.local
+                pxlcam::wifi_enable_mdns("pxlcam");
+                
+                String ip = pxlcam::WifiPreview::instance().getIPAddress();
+                
+                // Show info screen
+                drawInfoScreen("PXLcam", "12345678", ip.c_str(), true);
+                delay(3000);
+                
+                PXLCAM_LOGI("WiFi started: IP=%s (pxlcam.local)", ip.c_str());
+            } else {
+                showStatus("WiFi ERRO!");
+                delay(1500);
+                PXLCAM_LOGE("WiFi start failed");
+            }
+            break;
+        }
+        
+        case WifiMenuResult::STOP: {
+            pxlcam::WifiPreview::instance().stop();
+            wifiPreviewActive_ = false;
+            
+            drawStoppedScreen();
+            delay(1500);
+            
+            PXLCAM_LOGI("WiFi stopped");
+            break;
+        }
+        
+        case WifiMenuResult::SHOW_INFO: {
+            String ip = wifiPreviewActive_ 
+                ? pxlcam::WifiPreview::instance().getIPAddress() 
+                : "N/A";
+            
+            drawInfoScreen("PXLcam", "12345678", ip.c_str(), wifiPreviewActive_);
+            delay(5000);
+            break;
+        }
+        
+        case WifiMenuResult::SHOW_QR: {
+            // Display QR code for easy connection
+            pxlcam::wifi_qr::showQRScreen("PXLcam", "12345678", 15000);
+            break;
+        }
+        
+        case WifiMenuResult::BACK:
+        case WifiMenuResult::CANCELLED:
+        default:
+            break;
+    }
+}
+#else
+void AppController::handleWifiPreviewToggle() {
+    // WiFi Preview disabled
+}
+void AppController::updateWifiPreviewDisplay() {
+    // WiFi Preview disabled
+}
+void AppController::handleWifiMenu() {
+    // WiFi Preview disabled
+}
+#endif // PXLCAM_FEATURE_WIFI_PREVIEW
 
 }  // namespace pxlcam

@@ -211,6 +211,11 @@ private:
     WifiPreview(const WifiPreview&) = delete;
     WifiPreview& operator=(const WifiPreview&) = delete;
     
+    // HTTP handlers
+    void handleStream();
+    void handleCapture();
+    void handleStatus();
+    
     // Private implementation
     struct Impl;
     Impl* m_impl;
@@ -250,18 +255,16 @@ void wifi_preview_stop();
  */
 bool wifi_preview_is_active();
 
-// =============================================================================
-// TODOs for v1.3.0 Implementation
-// =============================================================================
-
-// TODO: Implement WiFi AP mode with captive portal
-// TODO: Implement MJPEG streaming endpoint
-// TODO: Implement WebSocket binary streaming
-// TODO: Add web UI for camera control
-// TODO: Implement OTA firmware update via WiFi
-// TODO: Add QR code display for easy connection
-// TODO: Implement WiFi credentials NVS storage
-// TODO: Add mDNS support (pxlcam.local)
+/**
+ * @brief Enable mDNS for easy hostname access
+ * 
+ * Allows accessing camera via hostname.local instead of IP.
+ * Example: pxlcam.local
+ * 
+ * @param hostname The hostname without .local suffix
+ * @return true on success
+ */
+bool wifi_enable_mdns(const char* hostname = "pxlcam");
 
 } // namespace pxlcam
 

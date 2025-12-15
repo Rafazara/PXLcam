@@ -107,6 +107,32 @@ bool initSD(const StorageConfig &config) {
         return false;
     }
 
+    // ==========================================================================
+    // STABILITY FIX: Validate SD I/O with real write test
+    // ==========================================================================
+    {
+        const char* testPath = "/.sdtest";
+        File testFile = SD_MMC.open(testPath, FILE_WRITE);
+        if (!testFile) {
+            PXLCAM_LOGE_TAG(kLogTag, "SD I/O test FAILED - cannot create test file");
+            SD_MMC.end();
+            return false;
+        }
+        
+        size_t written = testFile.println("PXLcam SD test");
+        testFile.close();
+        
+        if (written == 0) {
+            PXLCAM_LOGE_TAG(kLogTag, "SD I/O test FAILED - write returned 0 bytes");
+            SD_MMC.end();
+            return false;
+        }
+        
+        // Cleanup test file
+        SD_MMC.remove(testPath);
+        PXLCAM_LOGI_TAG(kLogTag, "SD I/O test PASSED");
+    }
+
     g_config = config;
     g_initialized = true;
 

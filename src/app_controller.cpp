@@ -21,6 +21,39 @@
 #include "nvs_store.h"
 #include "display_menu.h"
 
+// =============================================================================
+// v1.3.0 Module Includes (conditionally compiled)
+// =============================================================================
+
+#if PXLCAM_FEATURE_STYLIZED_CAPTURE
+#include "filters/palette.h"
+#include "filters/dither_pipeline.h"
+#include "filters/postprocess.h"
+#endif
+
+#if PXLCAM_FEATURE_WIFI_PREVIEW
+#include "wifi_preview.h"
+#include "wifi_menu.h"
+#include "wifi_qrcode.h"
+#endif
+
+#if PXLCAM_FEATURE_TIMELAPSE
+#include "timelapse.h"
+#include "timelapse_settings.h"
+#include "timelapse_menu.h"
+#include "timelapse_power.h"
+#endif
+
+// =============================================================================
+// Hardware Test Mode (v1.3.0-HWTEST)
+// =============================================================================
+
+#if PXLCAM_HWTEST
+#include "hwtest_overlay.h"
+#include "hwtest_log.h"
+#include <SD_MMC.h>
+#endif
+
 namespace pxlcam {
 
 namespace {
@@ -33,7 +66,7 @@ constexpr bool kEnableMetrics = false;
 }  // namespace
 
 void AppController::begin() {
-    PXLCAM_LOGI("AppController begin (v1.2.0)");
+    PXLCAM_LOGI("AppController begin (v1.3.0)");
     cameraPins_ = makeDefaultPins();
     cameraSettings_ = makeDefaultSettings();
     fallbackToJpeg_ = false;
@@ -47,6 +80,44 @@ void AppController::begin() {
     pxlcam::ui::init();
     pxlcam::menu::init();  // Modal menu system
 
+    // ==========================================================================
+    // v1.3.0 Subsystem Initialization
+    // ==========================================================================
+    
+#if PXLCAM_FEATURE_STYLIZED_CAPTURE
+    // TODO v1.3.0: Initialize stylized capture pipeline
+    // pxlcam::filters::palette_init();
+    // pxlcam::filters::dither_init();
+    // pxlcam::filters::postprocess_init();
+    // PXLCAM_LOGI("v1.3.0: Stylized capture initialized");
+#endif
+
+#if PXLCAM_FEATURE_WIFI_PREVIEW
+    // TODO v1.3.0: WiFi preview init (only when enabled via menu)
+    // WiFi is NOT initialized at boot to save power
+    // pxlcam::WifiPreview::instance().init();
+    // PXLCAM_LOGI("v1.3.0: WiFi preview ready (not started)");
+#endif
+
+#if PXLCAM_FEATURE_TIMELAPSE
+    // v1.3.0: Initialize timelapse subsystem
+    pxlcam::TimelapseController::instance().init();
+    pxlcam::timelapse::settingsInit();
+    pxlcam::timelapse::menuInit();
+    pxlcam::timelapse::powerInit();
+    PXLCAM_LOGI("v1.3.0: Timelapse subsystem ready");
+#endif
+
+    // ==========================================================================
+    // v1.3.0-HWTEST: Diagnostic Mode Initialization
+    // ==========================================================================
+#if PXLCAM_HWTEST
+    pxlcam::hwtest::DiagConfig diagCfg;
+    diagCfg.updateIntervalMs = 500;
+    pxlcam::hwtest::init(&diagCfg);
+    PXLCAM_LOGI("=== HWTEST DIAGNOSTIC MODE ACTIVE ===");
+#endif
+
     transitionTo(AppState::InitDisplay);
 }
 
@@ -55,6 +126,67 @@ void AppController::tick() {
     if (now >= startupGuardExpiryMs_) {
         button_.update(now);
     }
+
+    // ==========================================================================
+    // v1.3.0-HWTEST: Diagnostic Updates
+    // ==========================================================================
+#if PXLCAM_HWTEST
+    pxlcam::hwtest::update();
+    pxlcam::hwtest::tickFps();
+    pxlcam::hwtest::logUpdate();
+    
+    // Log metrics every 10 seconds
+    static uint32_t lastMetricsLog = 0;
+    if (now - lastMetricsLog >= 10000) {
+        pxlcam::hwtest::logToSerial("TICK");
+        lastMetricsLog = now;
+    }
+#endif
+
+    // ==========================================================================
+    // v1.3.0 Background Tasks
+    // ==========================================================================
+    
+#if PXLCAM_FEATURE_TIMELAPSE
+    // v1.3.0: Process timelapse tick
+    if (pxlcam::TimelapseController::instance().isRunning()) {
+        pxlcam::TimelapseController::instance().tick();
+        
+        // Update display periodically during timelapse (every 500ms)
+        static uint32_t lastDisplayUpdate = 0;
+        if (now - lastDisplayUpdate >= 500) {
+            updateTimelapseDisplay();
+            lastDisplayUpdate = now;
+        }
+        
+        if (pxlcam::TimelapseController::instance().shouldCapture()) {
+            // Trigger capture and mark complete
+            transitionTo(AppState::Capture);
+            return;
+        }
+        
+        // Check for light sleep opportunity
+        uint32_t nextCapture = pxlcam::TimelapseController::instance().getTimeToNextCapture();
+        if (pxlcam::timelapse::shouldUseSleep(nextCapture) && nextCapture > 5000) {
+            pxlcam::timelapse::enterLightSleep(nextCapture);
+            pxlcam::timelapse::handleWakeup();
+        }
+    }
+#endif
+
+#if PXLCAM_FEATURE_WIFI_PREVIEW
+    // v1.3.0: Process WiFi events if active
+    if (wifiPreviewActive_ && pxlcam::WifiPreview::instance().isActive()) {
+        pxlcam::WifiPreview::instance().tick();
+        
+        // Update WiFi status display periodically
+        static uint32_t lastWifiUpdate = 0;
+        if (now - lastWifiUpdate >= 1000) {
+            updateWifiPreviewDisplay();
+            lastWifiUpdate = now;
+        }
+    }
+#endif
 
     // Handle menu if visible (v1.2.0)
 #if PXLCAM_ENABLE_MENU
@@ -94,8 +226,24 @@ void AppController::tick() {
                     // Show modal menu - blocks until selection
                     pxlcam::menu::MenuResult result = pxlcam::menu::showModalAt(menuIdx);
                     
-                    // Apply selection if not cancelled
-                    if (result != pxlcam::menu::MODE_CANCELLED) {
+                    // Handle selection
+                    if (result == pxlcam::menu::MODE_CANCELLED) {
+                        // Do nothing
+                    }
+#if PXLCAM_FEATURE_TIMELAPSE
+                    else if (result == pxlcam::menu::MODE_TIMELAPSE) {
+                        // v1.3.0: Open timelapse submenu
+                        handleTimelapseMenu();
+                    }
+#endif
+#if PXLCAM_FEATURE_WIFI_PREVIEW
+                    else if (result == pxlcam::menu::MODE_WIFI) {
+                        // v1.3.0: Open WiFi Preview submenu
+                        handleWifiMenu();
+                    }
+#endif
+                    else {
+                        // Mode change
                         uint8_t newModeVal = pxlcam::menu::toCaptureModeValue(result);
                         pxlcam::mode::setMode(static_cast<pxlcam::mode::CaptureMode>(newModeVal), true);
                         PXLCAM_LOGI("Mode changed to: %s", pxlcam::menu::getResultName(result));
@@ -220,8 +368,29 @@ void AppController::handleInitStorage() {
     
     if (sdAvailable_) {
         showStatus("SD READY", true);
+        
+#if PXLCAM_HWTEST
+        // Initialize HWTEST logging after SD is ready
+        pxlcam::hwtest::LogConfig logCfg;
+        logCfg.logPath = "/PXL/hwtest.log";
+        logCfg.flushIntervalMs = 5000;
+        logCfg.logToSerial = true;
+        if (pxlcam::hwtest::logInit(&logCfg)) {
+            PXLCAM_LOGI("HWTEST: SD logging initialized");
+            HWTEST_EVENT("SD_INIT", "Storage ready");
+        }
+        
+        // Get SD card info for metrics
+        uint64_t total = SD_MMC.totalBytes() / (1024 * 1024);
+        uint64_t free = (SD_MMC.totalBytes() - SD_MMC.usedBytes()) / (1024 * 1024);
+        pxlcam::hwtest::setSdStatus(true, total, free);
+#endif
     } else {
         PXLCAM_LOGW("SD not available - captures will not be saved");
+#if PXLCAM_HWTEST
+        pxlcam::hwtest::setSdStatus(false, 0, 0);
+        HWTEST_EVENT("SD_FAIL", "No SD card");
+#endif
 #if PXLCAM_ENABLE_MENU
         pxlcam::ui::drawErrorScreen("AVISO", "SD nao encontrado\nApenas preview", false);
         delay(2000);
@@ -421,12 +590,39 @@ void AppController::handleSave() {
 #if PXLCAM_ENABLE_MENU
         pxlcam::ui::drawSuccessScreen("FOTO SALVA", filePath + 6, 0);  // Skip "/DCIM/"
 #endif
+
+#if PXLCAM_HWTEST
+        // Record capture timing for diagnostics
+        pxlcam::hwtest::recordCaptureTiming(captureDurationMs_, filterDurationMs_, saveDurationMs_);
+        pxlcam::hwtest::incrementFilesWritten();
+        HWTEST_EVENT("CAPTURE_OK", filePath);
+        pxlcam::hwtest::logToSerial("CAPTURE");
+#endif
+
+#if PXLCAM_FEATURE_TIMELAPSE
+        // v1.3.0: Notify timelapse controller of successful capture
+        if (pxlcam::TimelapseController::instance().isRunning()) {
+            pxlcam::TimelapseController::instance().onCaptureComplete(true);
+        }
+#endif
     } else {
         strncpy(lastMessage_, "ERRO SAVE", sizeof(lastMessage_) - 1);
         lastMessage_[sizeof(lastMessage_) - 1] = '\0';
         PXLCAM_LOGE("Failed to save frame");
 #if PXLCAM_ENABLE_MENU
         pxlcam::ui::drawErrorScreen("ERRO", "Falha ao salvar", true);
+#endif
+
+#if PXLCAM_HWTEST
+        HWTEST_EVENT("CAPTURE_FAIL", "Save error");
+        pxlcam::hwtest::logToSerial("CAP_ERR");
+#endif
+
+#if PXLCAM_FEATURE_TIMELAPSE
+        // v1.3.0: Notify timelapse controller of failed capture
+        if (pxlcam::TimelapseController::instance().isRunning()) {
+            pxlcam::TimelapseController::instance().onCaptureComplete(false);
+        }
 #endif
     }
 
@@ -463,6 +659,10 @@ bool AppController::configureCamera() {
     cameraSettings_.frameBufferCount = psramAvailable_ ? 2 : 1;
     cameraSettings_.enableLedFlash = false;
 
+    // ==========================================================================
+    // STABILITY FIX: Always boot in JPEG safe mode unless RGB888 experimental
+    // ==========================================================================
+    
     if (!psramAvailable_) {
         strncpy(lastMessage_, "NO PSRAM", sizeof(lastMessage_) - 1);
         lastMessage_[sizeof(lastMessage_) - 1] = '\0';
@@ -473,20 +673,38 @@ bool AppController::configureCamera() {
         return initCamera(cameraPins_, cameraSettings_);
     }
 
+#if PXLCAM_FEATURE_RGB888_EXPERIMENTAL
+    // Experimental: Try RGB888 with automatic fallback
+    PXLCAM_LOGI("RGB888 experimental mode enabled - attempting init");
     cameraSettings_.pixelFormat = PIXFORMAT_RGB888;
     cameraUsesRgb_ = true;
     if (initCamera(cameraPins_, cameraSettings_)) {
+        PXLCAM_LOGI("RGB888 init SUCCESS");
         return true;
     }
 
     PXLCAM_LOGW("RGB888 init failed, attempting JPEG fallback");
     shutdownCamera();
+#else
+    // Safe mode: Skip RGB888 entirely, boot directly in JPEG
+    PXLCAM_LOGI("RGB888 disabled (safe mode) - using JPEG");
+#endif
+
+    // JPEG fallback (always safe)
     cameraUsesRgb_ = false;
     cameraSettings_.pixelFormat = PIXFORMAT_JPEG;
     fallbackToJpeg_ = true;
-    strncpy(lastMessage_, "RGB FAIL", sizeof(lastMessage_) - 1);
+    
+    if (initCamera(cameraPins_, cameraSettings_)) {
+        PXLCAM_LOGI("Camera initialized in JPEG mode");
+        return true;
+    }
+    
+    // Critical: Camera completely failed
+    PXLCAM_LOGE("Camera init FAILED - even JPEG mode did not work");
+    strncpy(lastMessage_, "CAM FAIL", sizeof(lastMessage_) - 1);
     lastMessage_[sizeof(lastMessage_) - 1] = '\0';
-    return initCamera(cameraPins_, cameraSettings_);
+    return false;
 }
 
 void AppController::releaseActiveFrame() {
@@ -513,5 +731,235 @@ void AppController::logMetrics() const {
     const uint32_t freeHeap = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
     PXLCAM_LOGI("Metrics - capture:%ums filter:%ums save:%ums free_psram:%u free_heap:%u", captureDurationMs_, filterDurationMs_, saveDurationMs_, freePsram, freeHeap);
 }
+
+// =============================================================================
+// v1.3.0: Timelapse Mode Integration
+// =============================================================================
+
+#if PXLCAM_FEATURE_TIMELAPSE
+void AppController::handleTimelapseMenu() {
+    using namespace pxlcam::timelapse;
+    
+    // Show timelapse submenu
+    MenuResult result = showMenu();
+    
+    switch (result) {
+        case MenuResult::START: {
+            // Configure and start timelapse
+            TimelapseInterval interval = getCurrentInterval();
+            MaxFramesOption maxFrames = getCurrentMaxFrames();
+            
+            uint32_t intervalMs = intervalToMs(interval);
+            uint32_t maxFramesVal = maxFramesToValue(maxFrames);
+            
+            // Apply settings to controller
+            pxlcam::TimelapseController& ctrl = pxlcam::TimelapseController::instance();
+            ctrl.setInterval(intervalMs);
+            ctrl.setMaxFrames(maxFramesVal);
+            
+            // Show start screen
+            drawStartScreen(intervalMs, maxFramesVal);
+            delay(1500);
+            
+            // Start timelapse
+            ctrl.begin();
+            PXLCAM_LOGI("Timelapse started: interval=%lums, maxFrames=%lu", 
+                        intervalMs, maxFramesVal);
+            break;
+        }
+        
+        case MenuResult::STOP: {
+            // Stop timelapse
+            pxlcam::TimelapseController& ctrl = pxlcam::TimelapseController::instance();
+            uint32_t frames = ctrl.getFramesCaptured();
+            ctrl.stop();
+            
+            // Show summary
+            drawStoppedScreen(frames);
+            delay(2000);
+            
+            PXLCAM_LOGI("Timelapse stopped: %lu frames captured", frames);
+            break;
+        }
+        
+        case MenuResult::INTERVAL:
+        case MenuResult::MAX_FRAMES:
+            // Settings changed, controller will pick up on next start
+            PXLCAM_LOGI("Timelapse settings updated");
+            break;
+            
+        case MenuResult::BACK:
+        case MenuResult::CANCELLED:
+        default:
+            // Do nothing
+            break;
+    }
+}
+
+void AppController::updateTimelapseDisplay() {
+    if (pxlcam::TimelapseController::instance().isRunning()) {
+        pxlcam::timelapse::drawActiveScreen();
+    }
+}
+#else
+void AppController::handleTimelapseMenu() {
+    // Timelapse disabled
+}
+void AppController::updateTimelapseDisplay() {
+    // Timelapse disabled
+}
+#endif // PXLCAM_FEATURE_TIMELAPSE
+
+// =============================================================================
+// v1.3.0: WiFi Preview Integration
+// =============================================================================
+
+#if PXLCAM_FEATURE_WIFI_PREVIEW
+void AppController::handleWifiPreviewToggle() {
+    if (!wifiPreviewActive_) {
+        // Start WiFi Preview
+        showStatus("WiFi Starting...");
+        
+        // Initialize and start AP
+        pxlcam::WifiPreviewConfig config;
+        strncpy(config.ssid, "PXLcam", sizeof(config.ssid));
+        strncpy(config.password, "12345678", sizeof(config.password));
+        config.mode = pxlcam::WifiMode::AP;
+        config.targetFps = 10;  // Lower FPS for stability
+        config.quality = 40;   // Lower quality for speed
+        
+        if (pxlcam::WifiPreview::instance().init(config) &&
+            pxlcam::WifiPreview::instance().start()) {
+            
+            wifiPreviewActive_ = true;
+            
+            // Show success with IP
+            String ip = pxlcam::WifiPreview::instance().getIPAddress();
+            char buf[64];
+            snprintf(buf, sizeof(buf), "WiFi ON\n%s", ip.c_str());
+            showStatus(buf);
+            delay(2000);
+            
+            PXLCAM_LOGI("WiFi Preview started: SSID=PXLcam IP=%s", ip.c_str());
+        } else {
+            showStatus("WiFi FAILED!");
+            delay(1500);
+            PXLCAM_LOGE("WiFi Preview failed to start");
+        }
+    } else {
+        // Stop WiFi Preview
+        pxlcam::WifiPreview::instance().stop();
+        wifiPreviewActive_ = false;
+        
+        showStatus("WiFi OFF");
+        delay(1000);
+        
+        PXLCAM_LOGI("WiFi Preview stopped");
+    }
+    
+    showIdleScreen();
+}
+
+void AppController::updateWifiPreviewDisplay() {
+    if (!wifiPreviewActive_) return;
+    
+    auto status = pxlcam::WifiPreview::instance().getStatus();
+    
+    // Could add OLED overlay with client count, etc.
+    // For now just log periodically
+    static uint32_t lastLog = 0;
+    if (millis() - lastLog > 10000) {  // Every 10s
+        PXLCAM_LOGI("WiFi: clients=%u frames=%lu", 
+                    status.clientCount, status.framesServed);
+        lastLog = millis();
+    }
+}
+
+void AppController::handleWifiMenu() {
+    using namespace pxlcam::wifi_menu;
+    
+    // Show WiFi submenu
+    WifiMenuResult result = showMenu();
+    
+    switch (result) {
+        case WifiMenuResult::START: {
+            // Start WiFi Preview
+            drawStartingScreen();
+            delay(500);
+            
+            pxlcam::WifiPreviewConfig config;
+            strncpy(config.ssid, "PXLcam", sizeof(config.ssid));
+            strncpy(config.password, "12345678", sizeof(config.password));
+            config.mode = pxlcam::WifiMode::AP;
+            config.targetFps = 10;
+            config.quality = 40;
+            
+            if (pxlcam::WifiPreview::instance().init(config) &&
+                pxlcam::WifiPreview::instance().start()) {
+                
+                wifiPreviewActive_ = true;
+                
+                // Enable mDNS for pxlcam.local
+                pxlcam::wifi_enable_mdns("pxlcam");
+                
+                String ip = pxlcam::WifiPreview::instance().getIPAddress();
+                
+                // Show info screen
+                drawInfoScreen("PXLcam", "12345678", ip.c_str(), true);
+                delay(3000);
+                
+                PXLCAM_LOGI("WiFi started: IP=%s (pxlcam.local)", ip.c_str());
+            } else {
+                showStatus("WiFi ERRO!");
+                delay(1500);
+                PXLCAM_LOGE("WiFi start failed");
+            }
+            break;
+        }
+        
+        case WifiMenuResult::STOP: {
+            pxlcam::WifiPreview::instance().stop();
+            wifiPreviewActive_ = false;
+            
+            drawStoppedScreen();
+            delay(1500);
+            
+            PXLCAM_LOGI("WiFi stopped");
+            break;
+        }
+        
+        case WifiMenuResult::SHOW_INFO: {
+            String ip = wifiPreviewActive_ 
+                ? pxlcam::WifiPreview::instance().getIPAddress() 
+                : "N/A";
+            
+            drawInfoScreen("PXLcam", "12345678", ip.c_str(), wifiPreviewActive_);
+            delay(5000);
+            break;
+        }
+        
+        case WifiMenuResult::SHOW_QR: {
+            // Display QR code for easy connection
+            pxlcam::wifi_qr::showQRScreen("PXLcam", "12345678", 15000);
+            break;
+        }
+        
+        case WifiMenuResult::BACK:
+        case WifiMenuResult::CANCELLED:
+        default:
+            break;
+    }
+}
+#else
+void AppController::handleWifiPreviewToggle() {
+    // WiFi Preview disabled
+}
+void AppController::updateWifiPreviewDisplay() {
+    // WiFi Preview disabled
+}
+void AppController::handleWifiMenu() {
+    // WiFi Preview disabled
+}
+#endif // PXLCAM_FEATURE_WIFI_PREVIEW
 
 }  // namespace pxlcam

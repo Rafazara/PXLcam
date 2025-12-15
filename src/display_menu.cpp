@@ -26,21 +26,23 @@ namespace {
 
 constexpr const char* kLogTag = "menu";
 
-// Menu items - order: GameBoy, Night, Normal (as requested)
-constexpr uint8_t kItemCount = 3;
+// Menu items - order: GameBoy, Night, Normal, Timelapse, WiFi (v1.3.0)
+constexpr uint8_t kItemCount = 5;
 
 struct MenuItem {
     const char* label;      // Display text
     const char* bracket;    // Bracketed format
     MenuResult result;      // Return value
-    uint8_t modeValue;      // mode_manager value
+    uint8_t modeValue;      // mode_manager value (0xFF for submenu)
 };
 
 // Menu items in display order
 const MenuItem kMenuItems[kItemCount] = {
-    {"GameBoy", "[ GameBoy ]", MODE_GAMEBOY, 1},  // CaptureMode::GameBoy = 1
-    {"Night",   "[ Night ]",   MODE_NIGHT,   2},  // CaptureMode::Night = 2
-    {"Normal",  "[ Normal ]",  MODE_NORMAL,  0}   // CaptureMode::Normal = 0
+    {"GameBoy",   "[ GameBoy ]",   MODE_GAMEBOY,   1},    // CaptureMode::GameBoy = 1
+    {"Night",     "[ Night ]",     MODE_NIGHT,     2},    // CaptureMode::Night = 2
+    {"Normal",    "[ Normal ]",    MODE_NORMAL,    0},    // CaptureMode::Normal = 0
+    {"Timelapse", "[ Timelapse ]", MODE_TIMELAPSE, 0xFF}, // v1.3.0: Opens submenu
+    {"WiFi",      "[ WiFi ]",      MODE_WIFI,      0xFF}  // v1.3.0: Opens WiFi submenu
 };
 
 // Layout constants (128x64 OLED)
@@ -376,6 +378,8 @@ const char* getResultName(MenuResult result) {
         case MODE_GAMEBOY:   return "GameBoy";
         case MODE_NIGHT:     return "Night";
         case MODE_NORMAL:    return "Normal";
+        case MODE_TIMELAPSE: return "Timelapse";
+        case MODE_WIFI:      return "WiFi Preview";
         case MODE_CANCELLED: return "Cancelled";
         default:             return "Unknown";
     }

@@ -15,6 +15,7 @@
 #ifndef PXLCAM_TIMELAPSE_MENU_H
 #define PXLCAM_TIMELAPSE_MENU_H
 
+#include <stddef.h>
 #include <stdint.h>
 #include "pxlcam_config.h"
 

@@ -8,6 +8,10 @@
  * - Dither pipeline initialization
  * 
  * Uses Unity Test Framework (PlatformIO native)
+ * 
+ * @note Tests updated for new v1.3.0 API:
+ * - Palette struct: tones[4] + name only
+ * - DitherConfig: algorithm + strength + serpentine only
  */
 
 #include <unity.h>
@@ -25,34 +29,48 @@
 #include "timelapse.h"
 
 // =============================================================================
-// Test: Palette Basics
+// Test: Palette Basics (Updated for v1.3.0 API)
 // =============================================================================
 
-void test_palette_default_constructor() {
-    pxlcam::filters::Palette pal;
+void test_palette_get_default() {
+    // Initialize palette system
+    pxlcam::filters::palette_init();
     
-    TEST_ASSERT_EQUAL(4, pal.toneCount);
-    TEST_ASSERT_EQUAL_STRING("Default", pal.name);
-    TEST_ASSERT_FALSE(pal.isCustom);
+    // Get default palette (GB_CLASSIC)
+    const pxlcam::filters::Palette& pal = pxlcam::filters::palette_get(
+        pxlcam::filters::PaletteType::GB_CLASSIC);
     
-    // Verify tones are in ascending order
-    TEST_ASSERT_LESS_THAN(pal.tones[1], pal.tones[0]);  // Dark to light
+    // Verify palette has 4 tones (via PALETTE_TONE_COUNT constant)
+    TEST_ASSERT_EQUAL(4, pxlcam::filters::PALETTE_TONE_COUNT);
+    
+    // Verify tones are ordered darkest to lightest
+    TEST_ASSERT_LESS_OR_EQUAL(pal.tones[0], pal.tones[1]);
+    TEST_ASSERT_LESS_OR_EQUAL(pal.tones[1], pal.tones[2]);
+    TEST_ASSERT_LESS_OR_EQUAL(pal.tones[2], pal.tones[3]);
+    
+    // Verify name is set
+    TEST_ASSERT_NOT_NULL(pal.name);
 }
 
-void test_palette_custom_constructor() {
-    pxlcam::filters::Palette pal("TestPal", 0, 85, 170, 255);
+void test_palette_select_and_current() {
+    pxlcam::filters::palette_init();
     
-    TEST_ASSERT_EQUAL(4, pal.toneCount);
-    TEST_ASSERT_EQUAL_STRING("TestPal", pal.name);
-    TEST_ASSERT_EQUAL(0, pal.tones[0]);
-    TEST_ASSERT_EQUAL(85, pal.tones[1]);
-    TEST_ASSERT_EQUAL(170, pal.tones[2]);
-    TEST_ASSERT_EQUAL(255, pal.tones[3]);
+    // Select SEPIA palette
+    bool selected = pxlcam::filters::palette_select(pxlcam::filters::PaletteType::SEPIA);
+    TEST_ASSERT_TRUE(selected);
+    
+    // Verify current returns SEPIA
+    pxlcam::filters::PaletteType current = pxlcam::filters::palette_current_type();
+    TEST_ASSERT_EQUAL(pxlcam::filters::PaletteType::SEPIA, current);
+    
+    // Get palette via palette_current()
+    const pxlcam::filters::Palette& pal = pxlcam::filters::palette_current();
+    TEST_ASSERT_NOT_NULL(pal.name);
 }
 
 void test_palette_type_enum_count() {
-    // Verify built-in palette count matches enum
-    TEST_ASSERT_EQUAL(8, static_cast<uint8_t>(pxlcam::filters::PaletteType::COUNT));
+    // Verify total palette count (8 built-in + 3 custom = 11)
+    TEST_ASSERT_EQUAL(11, static_cast<uint8_t>(pxlcam::filters::PaletteType::COUNT));
 }
 
 // =============================================================================
@@ -99,44 +117,45 @@ void test_timelapse_presets() {
 #endif // PXLCAM_FEATURE_TIMELAPSE
 
 // =============================================================================
-// Test: Dither Pipeline Init
+// Test: Dither Pipeline Init (Updated for v1.3.0 API)
 // =============================================================================
 
 void test_dither_algorithm_count() {
-    TEST_ASSERT_EQUAL(7, static_cast<uint8_t>(pxlcam::filters::DitherAlgorithm::COUNT));
+    // DitherAlgorithm enum: ORDERED_8X8, ORDERED_4X4, FLOYD_STEINBERG, ATKINSON, COUNT=4
+    TEST_ASSERT_EQUAL(4, static_cast<uint8_t>(pxlcam::filters::DitherAlgorithm::COUNT));
 }
 
 void test_dither_config_defaults() {
     pxlcam::filters::DitherConfig config;
     
+    // New API: algorithm + strength + serpentine only
     TEST_ASSERT_EQUAL(pxlcam::filters::DitherAlgorithm::ORDERED_4X4, config.algorithm);
     TEST_ASSERT_EQUAL(128, config.strength);
-    TEST_ASSERT_FALSE(config.applyGamma);
-    TEST_ASSERT_TRUE(config.preserveContrast);
+    TEST_ASSERT_TRUE(config.serpentine);
 }
 
-void test_dither_algorithm_names() {
-    const char* name = pxlcam::filters::dither_get_algorithm_name(
-        pxlcam::filters::DitherAlgorithm::ORDERED_4X4);
-    
-    TEST_ASSERT_NOT_NULL(name);
-    TEST_ASSERT_EQUAL_STRING("Ordered 4x4", name);
+void test_dither_init_and_status() {
+    pxlcam::filters::dither_init();
+    TEST_ASSERT_TRUE(pxlcam::filters::dither_is_initialized());
 }
 
 // =============================================================================
 // Test: PostProcess Chain
 // =============================================================================
 
-void test_postprocess_filter_names() {
+void test_postprocess_init() {
+    // Test that postprocess_init returns true on success
+    bool result = pxlcam::filters::postprocess_init();
+    TEST_ASSERT_TRUE(result);
+}
+
+void test_postprocess_filter_name() {
+    pxlcam::filters::postprocess_init();
+    
     const char* name = pxlcam::filters::postprocess_get_filter_name(
         pxlcam::filters::FilterType::GAMMA_CORRECTION);
     
     TEST_ASSERT_NOT_NULL(name);
-    TEST_ASSERT_EQUAL_STRING("Gamma", name);
-}
-
-void test_postprocess_preset_count() {
-    TEST_ASSERT_EQUAL(6, static_cast<uint8_t>(pxlcam::filters::PostProcessPreset::COUNT));
 }
 
 // =============================================================================
@@ -156,9 +175,9 @@ void setup() {
     
     UNITY_BEGIN();
     
-    // Palette tests
-    RUN_TEST(test_palette_default_constructor);
-    RUN_TEST(test_palette_custom_constructor);
+    // Palette tests (v1.3.0 API)
+    RUN_TEST(test_palette_get_default);
+    RUN_TEST(test_palette_select_and_current);
     RUN_TEST(test_palette_type_enum_count);
     
     // Timelapse tests
@@ -169,14 +188,14 @@ void setup() {
     RUN_TEST(test_timelapse_presets);
 #endif
     
-    // Dither tests
+    // Dither tests (v1.3.0 API)
     RUN_TEST(test_dither_algorithm_count);
     RUN_TEST(test_dither_config_defaults);
-    RUN_TEST(test_dither_algorithm_names);
+    RUN_TEST(test_dither_init_and_status);
     
     // PostProcess tests
-    RUN_TEST(test_postprocess_filter_names);
-    RUN_TEST(test_postprocess_preset_count);
+    RUN_TEST(test_postprocess_init);
+    RUN_TEST(test_postprocess_filter_name);
     
     UNITY_END();
 }

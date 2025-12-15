@@ -85,9 +85,9 @@ void AppController::begin() {
 #endif
 
 #if PXLCAM_FEATURE_TIMELAPSE
-    // TODO v1.3.0: Timelapse controller init
-    // pxlcam::TimelapseController::instance().init();
-    // PXLCAM_LOGI("v1.3.0: Timelapse controller ready");
+    // v1.3.0: Initialize timelapse controller
+    pxlcam::TimelapseController::instance().init();
+    PXLCAM_LOGI("v1.3.0: Timelapse controller ready");
 #endif
 
     transitionTo(AppState::InitDisplay);
@@ -104,15 +104,15 @@ void AppController::tick() {
     // ==========================================================================
     
 #if PXLCAM_FEATURE_TIMELAPSE
-    // TODO v1.3.0: Process timelapse tick
-    // if (pxlcam::TimelapseController::instance().isRunning()) {
-    //     pxlcam::TimelapseController::instance().tick();
-    //     if (pxlcam::TimelapseController::instance().shouldCapture()) {
-    //         // Trigger capture and mark complete
-    //         transitionTo(AppState::Capture);
-    //         return;
-    //     }
-    // }
+    // v1.3.0: Process timelapse tick
+    if (pxlcam::TimelapseController::instance().isRunning()) {
+        pxlcam::TimelapseController::instance().tick();
+        if (pxlcam::TimelapseController::instance().shouldCapture()) {
+            // Trigger capture and mark complete
+            transitionTo(AppState::Capture);
+            return;
+        }
+    }
 #endif
 
 #if PXLCAM_FEATURE_WIFI_PREVIEW
@@ -487,12 +487,26 @@ void AppController::handleSave() {
 #if PXLCAM_ENABLE_MENU
         pxlcam::ui::drawSuccessScreen("FOTO SALVA", filePath + 6, 0);  // Skip "/DCIM/"
 #endif
+
+#if PXLCAM_FEATURE_TIMELAPSE
+        // v1.3.0: Notify timelapse controller of successful capture
+        if (pxlcam::TimelapseController::instance().isRunning()) {
+            pxlcam::TimelapseController::instance().onCaptureComplete(true);
+        }
+#endif
     } else {
         strncpy(lastMessage_, "ERRO SAVE", sizeof(lastMessage_) - 1);
         lastMessage_[sizeof(lastMessage_) - 1] = '\0';
         PXLCAM_LOGE("Failed to save frame");
 #if PXLCAM_ENABLE_MENU
         pxlcam::ui::drawErrorScreen("ERRO", "Falha ao salvar", true);
+#endif
+
+#if PXLCAM_FEATURE_TIMELAPSE
+        // v1.3.0: Notify timelapse controller of failed capture
+        if (pxlcam::TimelapseController::instance().isRunning()) {
+            pxlcam::TimelapseController::instance().onCaptureComplete(false);
+        }
 #endif
     }
 
